@@ -16,3 +16,5 @@ classifier_ckpts/
 figures/
 archive/
 *.png
+
+run*/
