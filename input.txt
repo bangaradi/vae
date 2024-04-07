@@ -1,5 +1,0 @@
-start  : 1,2
-learn  : 3
-learn  : 4
-forget : 3
- 

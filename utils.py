@@ -1,5 +1,6 @@
 import yaml
 from datetime import datetime
+import torch
 import os
 # import wandb
 import argparse
@@ -97,4 +98,24 @@ def cycle(dl):
     while True:
         for data in dl:
             yield data
-            
+
+def find_indices_to_drop(model_state_dict, layer_name, hyperparam_k = 0.1):
+
+    # find the L2 norm of each neuron and store it
+    l2_norm = []
+    for i in range(model_state_dict[layer_name + '.weight'].size()[0]):
+        l2_norm.append(torch.norm(model_state_dict[layer_name + '.weight'][i], 2))
+        # Add the contribution from layer_name.bias
+        l2_norm[-1] += torch.norm(model_state_dict[layer_name + ".bias"][i], 2)
+
+    # find the threshold i.e. the value of the bottom k% of L2 norm
+    if int(hyperparam_k * len(l2_norm)) == 0:
+        return []
+    else:
+        threshold = torch.kthvalue(torch.tensor(l2_norm), int(hyperparam_k * len(l2_norm)))[0]
+    # find the indices of neurons with L2 norm less than threshold
+    indices = []
+    for i in range(len(l2_norm)):
+        if l2_norm[i] < threshold:
+            indices.append(i)
+    return indices

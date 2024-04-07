@@ -15,10 +15,11 @@
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
+import torch.nn as nn
 from torchvision.utils import save_image, make_grid
 from torchvision import datasets, transforms
 import pickle
-from model import OneHotCVAE, loss_function
+from model import OneHotCVAE, loss_function, SelectiveDropout
 from utils import setup_dirs
 import os
 import argparse
@@ -27,7 +28,11 @@ import copy
 from dataset import MNIST_Custom
 import numpy as np
 from tqdm import tqdm
-from utils import get_config_and_setup_dirs_final, cycle, setup_dirs_final
+from utils import get_config_and_setup_dirs_final, cycle, find_indices_to_drop
+
+WARMUP_PERIOD = 10
+BREATHING_PERIOD = 5
+WARMED_UP = 0
 
 
 def parse_args_and_config():
@@ -69,7 +74,7 @@ def parse_args_and_config():
     )
     
     parser.add_argument(
-        "--n_fim_samples", type=int, default=5000, help='Number of samples to visualize while logging'
+        "--n_fim_samples", type=int, default=50, help='Number of samples to visualize while logging'
     )
     
     parser.add_argument(
@@ -186,6 +191,7 @@ def train_initial(LEARNT_LABELS, labels_to_learn, optimizer_name, n_iter, device
     return LEARNT_LABELS
 
 def train_continual(LEARNT_LABELS, labels_to_learn, optimizer_name, n_iter, vae, device, args, config, line_count):
+    global WARMED_UP, BREATHING_PERIOD, WARMUP_PERIOD
     # take union of learnt labels and new labels
     labels_to_remember = LEARNT_LABELS
     LEARNT_LABELS = list(set(LEARNT_LABELS).union(set(labels_to_learn)))
@@ -204,6 +210,9 @@ def train_continual(LEARNT_LABELS, labels_to_learn, optimizer_name, n_iter, vae,
     learning_loss = 0
     ewc_loss = 0
     for step in tqdm(range(0, n_iter)):
+        if step >= WARMUP_PERIOD:
+            print("warming up")
+            WARMED_UP = 1
         c_remember = torch.from_numpy(np.random.choice(labels_to_remember, size=args.batch_size)).to(device)
         c_remember = F.one_hot(c_remember, 10)
         z_remember = torch.randn((args.batch_size, config.z_dim)).to(device)
@@ -236,6 +245,24 @@ def train_continual(LEARNT_LABELS, labels_to_learn, optimizer_name, n_iter, vae,
         train_loss += loss.item() / args.log_freq
         optimizer.step()
 
+        # ADDING SELECTIVE DROPOUT
+        if WARMED_UP and step % BREATHING_PERIOD == 0:
+            # print("Warned up and ready")
+            model_state_dict = vae.state_dict()
+            for layer_name in model_state_dict.keys():
+                if 'fc' in layer_name and 'weight' in layer_name:
+                    attribute_name = layer_name.split('.')[0]
+                    base_layer_name = layer_name.rsplit('.', 1)[0] # split at the last occurance of .
+                    # print(base_layer_name)
+                    # print(model_state_dict.keys())
+                    indices = find_indices_to_drop(model_state_dict, base_layer_name)
+                    # print("indices to drop : ", indices)
+                    dropout_layer = SelectiveDropout(dropout_rate=0.5, neuron_indices=indices)
+                    # model_state_dict[layer_name] = nn.Sequential(model_state_dict[layer_name], dropout_layer)
+                    current_layer = getattr(vae, attribute_name)
+                    modified_layer = nn.Sequential(current_layer, dropout_layer)
+                    setattr(vae, attribute_name, modified_layer)
+
         if (step+1) % args.log_freq == 0:
             logging.info('Train Step: {} ({:.0f}%)\t Avg Train Loss Per Batch: {:.6f}'.format(
                 step, 100. * step / n_iter, train_loss))
@@ -252,15 +279,17 @@ def train_continual(LEARNT_LABELS, labels_to_learn, optimizer_name, n_iter, vae,
     torch.save({
             "model": vae.state_dict(),
             "config": config,
-            "labels": LEARNT_LABELS
+            "labels": LEARNT_LABELS,
+            "fisher_dict": None, # TODO: save fisher dict
+            "params_mle_dict": None, # TODO: save params_mle_dict
+            "h_dims1": None, #TODO
+            "h_dims2": None, #TODO
         },
         os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
 
     save_fim(vae, device, args, config)
-    
+    WARMED_UP = 0
     return LEARNT_LABELS
-        
- 
 
 def train_forget(LEARNT_LABELS, labels_to_forget, optimizer_name, n_iter, vae, device, args, config, line_count):
     vae_clone = copy.deepcopy(vae)
@@ -345,8 +374,6 @@ def train_forget(LEARNT_LABELS, labels_to_forget, optimizer_name, n_iter, vae, d
 
     return LEARNT_LABELS
 
-
-
 def test(labels_to_learn, vae, device, args):
     test_dataset = MNIST_Custom(digits=labels_to_learn, data_path=args.data_path, train=False, transform=transforms.ToTensor(), download=False)
     test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=args.batch_size, shuffle=False)
@@ -389,7 +416,7 @@ def sample(step, vae, device, args, config, folder_name, line_count):
             os.makedirs(os.path.join(config.log_dir, folder_name + str(line_count)))
         save_image(grid, os.path.join(config.log_dir, folder_name + str(line_count), "step_" + str(step) + ".png"))
 
-if __name__ == "__main__":
+def main():
     global LEARNT_LABELS
     LEARNT_LABELS = []
     
@@ -458,3 +485,5 @@ if __name__ == "__main__":
         else:
             continue
 
+main()
+print("Done") # (TODO: remove this line)

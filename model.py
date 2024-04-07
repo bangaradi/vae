@@ -60,8 +60,43 @@ class Classifier(nn.Module):
         x = self.fc2(x)
         return F.log_softmax(x)
     
+class SelectiveDropout(nn.Module):
+    def __init__(self, dropout_rate, neuron_indices):
+        super(SelectiveDropout, self).__init__()
+        self.dropout_rate = dropout_rate
+        self.neuron_indices = neuron_indices
+
+    def forward(self, inputs):
+        if self.training and len(self.neuron_indices) != 0:
+            # print("inside training mode ")
+            # print("inputs ", inputs)
+            mask = torch.ones_like(inputs, dtype=torch.float32).to(inputs.device)
+            neuron_indices = torch.ones(inputs.shape[1], dtype=torch.float32).to(inputs.device)
+            # make the neuron_indices at positions self.neuron_indices to 0 with probability self.dropout_rate
+            for i in self.neuron_indices:
+                # set neuron_indices[i] to 0 with probability self.dropout_rate
+                if torch.rand(1) < self.dropout_rate:
+                    neuron_indices[i] = 0
+                else :
+                    neuron_indices[i] = 1 * 1/(1 - self.dropout_rate)
+            # multiply the mask which is an array of arrays with the neuron_indices
+            # print("neuron_indices ", neuron_indices)
+            mask = mask * neuron_indices
+            # print("mask ", mask)
+            # print("returning ", inputs * mask)
+            return inputs * mask
+        else:
+            return inputs
 
 def loss_function(recon_x, x, mu, log_var):
     BCE = F.binary_cross_entropy(recon_x, x.view(-1, 784), reduction='sum')
     KLD = -0.5 * torch.sum(1 + log_var - mu.pow(2) - log_var.exp())
     return BCE + KLD
+
+def add_weight_regularization(model_state_dict):
+    l1_norm_sum = 0
+    for layer_name in model_state_dict:
+        if 'weight' in layer_name or 'bias' in layer_name:
+            for i in range(model_state_dict[layer_name].size()[0]):
+                l1_norm_sum += torch.norm(model_state_dict[layer_name][i], 1)
+    return l1_norm_sum
