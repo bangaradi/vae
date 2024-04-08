@@ -67,7 +67,7 @@ class SelectiveDropout(nn.Module):
         self.neuron_indices = neuron_indices
 
     def forward(self, inputs):
-        if self.training and len(self.neuron_indices) != 0:
+        if self.training and len(self.neuron_indices) != 0 and self.dropout_rate != 0:
             # print("inside training mode ")
             # print("inputs ", inputs)
             mask = torch.ones_like(inputs, dtype=torch.float32).to(inputs.device)
