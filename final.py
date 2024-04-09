@@ -28,14 +28,14 @@ import copy
 from dataset import MNIST_Custom
 import numpy as np
 from tqdm import tqdm
-from utils import get_config_and_setup_dirs_final, cycle, find_indices_to_drop, prune_model, prune_model_using_dag, expand_model
+from utils import get_config_and_setup_dirs_final, cycle, find_indices_to_drop, prune_model, prune_model_using_dag, expand_model, evaluate_with_classifier
 
 WARMUP_PERIOD = 1000
 BREATHING_PERIOD = 500
 WARMED_UP = 0
 HYPERPARAMETER_COMPRESS = 0.1
 HYPERPARAMETERS_EXPAND = 0.1
-
+CLASSIFIER_PATH = "/home/stud-1/aditya/vae/classifier_ckpts/model.pt"
 
 def parse_args_and_config():
     parser = argparse.ArgumentParser()
@@ -177,6 +177,7 @@ def train_initial(LEARNT_LABELS, labels_to_learn, optimizer_name, n_iter, device
             logging.info('Train Step: {} ({:.0f}%)\t Avg Train Loss Per Batch: {:.6f}\t Avg Test Loss Per Batch: {:.6f}'.format(
                 step, 100. * step / n_iter, train_loss / args.log_freq, test(labels_to_learn, vae, device, args)))
             sample(step, vae, device, args, config, "initial", line_count)
+            remebered_prob_cum_sum, forgotten_prob_cum_sum, avg_entropy = evaluate_with_classifier(CLASSIFIER_PATH, )
             train_loss = 0
     
     

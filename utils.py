@@ -6,6 +6,14 @@ import os
 import argparse
 from torchvision import datasets, transforms
 import copy
+from PIL import Image
+from model import Classifier, OneHotCVAE
+import torchvision.transforms as transforms
+from torch.utils.data import DataLoader
+import pathlib
+
+IMAGE_EXTENSIONS = {'bmp', 'jpg', 'jpeg', 'pgm', 'png', 'ppm',
+                    'tif', 'tiff', 'webp'}
 
 def get_config_and_setup_dirs(filename):
     with open(filename, 'r') as fp:
@@ -213,12 +221,18 @@ def prune_model(model_state_dict):
     return model_state_dict
 
 
-def prune_model_using_dag(model_state_dict, hyperparam_k = 0.1):
+def prune_model_using_dag(model_state_dict, hyperparam_k = 0.1, type=1):
     model_state_dict_copy = copy.deepcopy(model_state_dict)
-    dag = create_dag(model_state_dict)
-    start_layer = "fc1.0.weight"
+    dag = create_dag(model_state_dict, type=type)
+    if type == 1:
+        start_layer = "fc1.0.weight"
+    else :
+        start_layer = "fc1.weight"
     layers_done = set([])
-    layers_to_prune = list(dag.keys()) + ["fc6.0.weight"]
+    if type == 1:
+        layers_to_prune = list(dag.keys()) + ["fc6.0.weight"]
+    else :
+        layers_to_prune = list(dag.keys()) + ["fc6.weight"]
     while len(layers_to_prune) != 0:
         # get the first in the list
         start_layer = layers_to_prune.pop(0)
@@ -290,12 +304,18 @@ def prune_model_using_dag(model_state_dict, hyperparam_k = 0.1):
 
     return model_state_dict
 
-def expand_model(model_state_dict, hyperparam_e = 0.1, hyperparam_perturbation=0.01): # hardcoded for now ... , may write comprehensive code for this later!
+def expand_model(model_state_dict, hyperparam_e = 0.1, hyperparam_perturbation=0.01, type=2): # hardcoded for now ... , may write comprehensive code for this later!
     model_state_dict_copy = copy.deepcopy(model_state_dict)
-    dag = create_dag(model_state_dict, type=2)
-    start_layer = "fc1.weight"
+    dag = create_dag(model_state_dict, type=type)
+    if type == 2:
+        start_layer = "fc1.weight"
+    else : 
+        start_layer = "fc1.0.weight"
     layers_done = set([])
-    layers_to_expand = list(dag.keys()) + ["fc6.weight"]
+    if type == 2:
+        layers_to_expand = list(dag.keys()) + ["fc6.weight"]
+    else : 
+        layers_to_expand = list(dag.keys()) + ["fc6.0.weight"]
     while len(layers_to_expand) != 0:
         start_layer = layers_to_expand.pop(0)
         expand_right = False
@@ -365,4 +385,126 @@ def expand_model(model_state_dict, hyperparam_e = 0.1, hyperparam_perturbation=0
 
     return model_state_dict
 
+import tqdm
+import torch.nn.functional as F
+from torchvision.utils import save_image
+
+def generate_samples(ckpt_folder, sample_path, classes_remembered, classes_not_remembered, n_samples=100, batch_size=32):
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    try :
+        ckpt = torch.load(os.path.join(ckpt_folder, "ckpts/ckpt_modified.pt"), map_location=device)
+    except:
+        ckpt = torch.load(os.path.join(ckpt_folder, "ckpts/ckpt.pt"), map_location=device)
+    config = ckpt['config']
+    # build model
+    try :
+        vae = OneHotCVAE(x_dim=config.x_dim, h_dim1= ckpt['h_dims1'], h_dim2=ckpt['h_dim2'], z_dim=config.z_dim)
+    except:
+        vae = OneHotCVAE(x_dim=config.x_dim, h_dim1= 462, h_dim2=232, z_dim=config.z_dim)
+    vae = vae.to(device)
+    
+    vae.load_state_dict(ckpt['model'])
+    vae.eval()
+    
+    for cls in classes_remembered:
+        sample_dir = os.path.join(sample_path, f"{cls}_samples")
+        print("sample_dir ", sample_dir)
+        if not os.path.exists(sample_dir):
+            os.makedirs(sample_dir, exist_ok=True)
+        i = 0
+        with torch.no_grad():
+            for _ in tqdm.tqdm(range((n_samples // batch_size)*batch_size)):
+                z = torch.randn((batch_size, config.z_dim)).to(device)
+                c = (torch.ones(batch_size, dtype=int) * cls).to(device)
+                c = F.one_hot(c, 10)
+                samples = vae.decoder(z, c).view(-1, 1, 28, 28)
+                for x in samples:
+                    save_image(x, os.path.join(sample_dir, f'{i}.png'))
+                    i += 1
+    for cls in classes_not_remembered:
+        sample_dir = os.path.join(sample_path, f"{cls}_samples")
+        print("sample_dir ", sample_dir)
+        if not os.path.exists(sample_dir):
+            os.makedirs(sample_dir, exist_ok=True)
+        i = 0
+        with torch.no_grad():
+            for _ in tqdm.tqdm(range((n_samples //batch_size)*batch_size)):
+                z = torch.randn((batch_size, config.z_dim)).to(device)
+                c = (torch.ones(batch_size, dtype=int) * cls).to(device)
+                c = F.one_hot(c, 10)
+                samples = vae.decoder(z, c).view(-1, 1, 28, 28)
+                for x in samples:
+                    save_image(x, os.path.join(sample_dir, f'{i}.png'))
+                    i += 1
+
+class ImagePathDataset(torch.utils.data.Dataset):
+    def __init__(self, img_folder, transforms=None, n=None):
+        self.transforms = transforms
         
+        path = pathlib.Path(img_folder)
+        # self.files = sorted([file for ext in IMAGE_EXTENSIONS
+        #                for file in path.glob('*.{}'.format(ext))])
+        self.folders = sorted([folder for folder in path.iterdir() if folder.is_dir()])
+        self.files = []
+
+        for folder in self.folders:
+            # self.files.extend(sorted([file for ext in IMAGE_EXTENSIONS
+            #     for file in folder.glob('*.{}'.format(ext))]))
+            images = sorted([file for ext in IMAGE_EXTENSIONS
+                for file in folder.glob('*.{}'.format(ext))])
+            self.files.extend(images)
+        
+        assert n is None or n <= len(self.files)
+        self.n = len(self.files) if n is None else n
+        
+    def __len__(self):
+        return self.n
+
+    def __getitem__(self, i):
+        path = self.files[i]
+        img = Image.open(path).convert('L')
+        if self.transforms is not None:
+            img = self.transforms(img)
+        return img
+
+def GetImageFolderLoader(path, batch_size):
+
+    dataset = ImagePathDataset(
+            path,
+            transforms=transforms.ToTensor(),
+    )
+    
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size
+    )
+    
+    return loader
+
+def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, classes_not_remembered, sample_path="./samples", batch_size=32):
+    # generate_samples(ckpt_folder, sample_path, classes_remembered, classes_not_remembered, n_samples=1000, batch_size=32)
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model = Classifier().to(device)
+    model.eval()
+    ckpt = torch.load(classifier_path, map_location=device)
+    model.load_state_dict(ckpt)
+    
+    loader = GetImageFolderLoader(sample_path, batch_size=32)
+    n_samples = len(loader.dataset)
+    
+    entropy_cum_sum = 0
+    forgotten_prob_cum_sum = 0
+    remembered_prob_cum_sum = 0
+    print("total samples ", n_samples)
+    for data in tqdm.tqdm(iter(loader), total=n_samples//batch_size):
+        log_probs = model(data.to(device)) # model outputs log_softmax
+        probs = log_probs.exp()
+        entropy = -torch.multiply(probs, log_probs).sum(1)
+        avg_entropy = torch.sum(entropy)/n_samples
+        entropy_cum_sum += avg_entropy.item()
+        for cls in classes_not_remembered:
+            forgotten_prob_cum_sum += (probs[:, cls] / (n_samples*len(classes_not_remembered)/(len(classes_remembered) + len(classes_not_remembered)))).sum().item()
+        for cls in classes_remembered:
+            remembered_prob_cum_sum += (probs[:, cls] / (n_samples*len(classes_remembered)/(len(classes_remembered) + len(classes_not_remembered)))).sum().item()
+        
+    return remembered_prob_cum_sum, forgotten_prob_cum_sum, entropy_cum_sum

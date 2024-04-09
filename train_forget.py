@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from torchvision.utils import save_image, make_grid
 import pickle
 from model import OneHotCVAE, loss_function
-from utils import setup_dirs
+from utils import setup_dirs, prune_model_using_dag
 import os
 import argparse
 import logging
@@ -79,7 +79,7 @@ def train():
     label_choices = list(range(10))
     label_choices.remove(args.label_to_drop)
     
-    vae.train()
+    vae2.train()
     train_loss = 0
     forgetting_loss = 0
     ewc_loss = 0
@@ -97,26 +97,26 @@ def train():
         with torch.no_grad():
             out_remember = vae_clone.decoder(z_remember, c_remember).view(-1, 1, 28, 28)
 
-        optimizer.zero_grad()
+        optimizer2.zero_grad()
                 
         # corrupting loss
-        recon_batch, mu, log_var = vae(out_forget, c_forget)
+        recon_batch, mu, log_var = vae2(out_forget, c_forget)
         loss = loss_function(recon_batch, out_forget, mu, log_var)
         
         # contrastive loss
-        recon_batch, mu, log_var = vae(out_remember, c_remember)
+        recon_batch, mu, log_var = vae2(out_remember, c_remember)
         loss += args.gamma * loss_function(recon_batch, out_remember, mu, log_var)
         
         forgetting_loss += loss / args.log_freq
         
-        for n, p in vae.named_parameters():
-            _loss = fisher_dict[n].to(device) * (p - params_mle_dict[n].to(device)) ** 2
-            loss += args.lmbda * _loss.sum()
-            ewc_loss += args.lmbda * _loss.sum() / args.log_freq
+        # for n, p in vae.named_parameters():
+        #     _loss = fisher_dict[n].to(device) * (p - params_mle_dict[n].to(device)) ** 2
+        #     loss += args.lmbda * _loss.sum()
+        #     ewc_loss += args.lmbda * _loss.sum() / args.log_freq
         
         loss.backward()
         train_loss += loss.item() / args.log_freq
-        optimizer.step()
+        optimizer2.step()
         
         if (step+1) % args.log_freq == 0:
             logging.info('Train Step: {} ({:.0f}%)\t Avg Train Loss Per Batch: {:.6f}'.format(
@@ -131,13 +131,13 @@ def train():
 
 
 def sample(step):
-    vae.eval()
+    vae2.eval()
     with torch.no_grad():
         z = torch.randn((args.n_vis_samples, new_config.z_dim)).to(device)
         c = torch.repeat_interleave(torch.arange(10), args.n_vis_samples//10).to(device)
         c = F.one_hot(c, 10)
         
-        out = vae.decoder(z, c).view(-1, 1, 28, 28)
+        out = vae2.decoder(z, c).view(-1, 1, 28, 28)
         
         grid = make_grid(out, nrow = args.n_vis_samples//10)
         save_image(grid, os.path.join(new_config.log_dir, "step_" + str(step) + ".png"))
@@ -161,14 +161,23 @@ if __name__ == "__main__":
     for name, param in vae.named_parameters():
         params_mle_dict[name] = param.data.clone()
 
-    with open(os.path.join(old_config.exp_root_dir, 'fisher_dict.pkl'), 'rb') as f:
-        fisher_dict = pickle.load(f)
+    # with open(os.path.join(old_config.exp_root_dir, 'fisher_dict.pkl'), 'rb') as f:
+    #     fisher_dict = pickle.load(f)
     
     optimizer = optim.Adam(vae.parameters(), lr=args.lr)
-
+    state_dict = vae.state_dict()
+    pruned_state_dict = prune_model_using_dag(state_dict, type=2)
+    h_dim1 = pruned_state_dict['fc1.weight'].shape[0]
+    h_dim2 = pruned_state_dict['fc2.weight'].shape[0]
+    vae2 = OneHotCVAE(x_dim=new_config.x_dim, h_dim1=h_dim1, h_dim2=h_dim2, z_dim=new_config.z_dim)
+    vae2.load_state_dict(pruned_state_dict)
+    vae2 = vae2.to(device)
+    vae2.train()
+    # vae = copy.deepcopy(vae2)
+    optimizer2 = optim.Adam(vae2.parameters(), lr=args.lr)
     train()
     torch.save({
-            "model": vae.state_dict(),
+            "model": vae2.state_dict(),
             "config": new_config
         },
         os.path.join(new_config.ckpt_dir, "ckpt.pt"))
