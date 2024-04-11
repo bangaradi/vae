@@ -177,7 +177,6 @@ def train_initial(LEARNT_LABELS, labels_to_learn, optimizer_name, n_iter, device
             logging.info('Train Step: {} ({:.0f}%)\t Avg Train Loss Per Batch: {:.6f}\t Avg Test Loss Per Batch: {:.6f}'.format(
                 step, 100. * step / n_iter, train_loss / args.log_freq, test(labels_to_learn, vae, device, args)))
             sample(step, vae, device, args, config, "initial", line_count)
-            remebered_prob_cum_sum, forgotten_prob_cum_sum, avg_entropy = evaluate_with_classifier(CLASSIFIER_PATH, )
             train_loss = 0
     
     
@@ -194,6 +193,7 @@ def train_initial(LEARNT_LABELS, labels_to_learn, optimizer_name, n_iter, device
         },
         os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
     
+    cum_sum, avg_entropy = evaluate_with_classifier(config.ckpt_dir, CLASSIFIER_PATH, LEARNT_LABELS, [])
     save_fim(vae, device, args, config)
 
     return LEARNT_LABELS
@@ -201,7 +201,7 @@ def train_initial(LEARNT_LABELS, labels_to_learn, optimizer_name, n_iter, device
 def train_continual(labels_to_learn, optimizer_name, n_iter, vae, device, args, config, line_count):
     global WARMED_UP, BREATHING_PERIOD, WARMUP_PERIOD, HYPERPARAMETERS_EXPAND, LEARNT_LABELS
     # take union of learnt labels and new labels
-    labels_to_remember = LEARNT_LABELS.deepcopy()
+    labels_to_remember = LEARNT_LABELS.copy()
     size_before = len(LEARNT_LABELS)
     LEARNT_LABELS = list(set(LEARNT_LABELS).union(set(labels_to_learn)))
     print("learnt labels : ", LEARNT_LABELS)
@@ -246,7 +246,7 @@ def train_continual(labels_to_learn, optimizer_name, n_iter, vae, device, args, 
 
         #learning_loss
         recon_batch, mu, log_var = vae(out_remember, c_remember)
-        loss = args.gamma * loss_function(recon_batch, out_remember, mu, log_var)
+        loss = loss_function(recon_batch, out_remember, mu, log_var)
 
         #contrastive loss
         recon_batch, mu, log_var = vae(out_new, c_new)
@@ -315,6 +315,7 @@ def train_continual(labels_to_learn, optimizer_name, n_iter, vae, device, args, 
         },
         os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
 
+    cum_sum, avg_entropy = evaluate_with_classifier(config.ckpt_dir, CLASSIFIER_PATH, LEARNT_LABELS, [])
     save_fim(vae, device, args, config)
     WARMED_UP = 0
     return LEARNT_LABELS
@@ -338,9 +339,13 @@ def train_forget(labels_to_forget, optimizer_name, n_iter, vae, device, args, co
     with open(os.path.join(config.exp_root_dir, 'fisher_dict.pkl'), 'rb') as f:
         fisher_dict = pickle.load(f)
 
+
+    state_dict_pruned = prune_model_using_dag(vae.state_dict(), type=2)
+    vae = OneHotCVAE(x_dim=config.x_dim, h_dim1=state_dict_pruned['fc1.weight'].shape[0], h_dim2=state_dict_pruned['fc2.weight'].shape[0], z_dim=config.z_dim)
+    vae.load_state_dict(state_dict_pruned)
+    vae = vae.to(device)
     if optimizer_name == 'adam':
         optimizer = optim.Adam(vae.parameters(), lr=args.lr)
-
     vae.train()
     train_loss = 0
     forgetting_loss = 0
@@ -382,25 +387,25 @@ def train_forget(labels_to_forget, optimizer_name, n_iter, vae, device, args, co
         optimizer.step()
 
         # ADDING SELECTIVE DROPOUT
-        if WARMED_UP and step % BREATHING_PERIOD == 0:
-            # print("Warned up and ready")
-            for layer_name, _ in vae.named_parameters():
-                if 'fc' in layer_name and 'weight' in layer_name:
-                    attribute_name = layer_name.split('.')[0]
-                    base_layer_name = layer_name.rsplit('.', 1)[0]
-                    indices = find_indices_to_drop(vae.state_dict(), base_layer_name)
-                    current_layer = getattr(vae, attribute_name)
+        # if WARMED_UP and step % BREATHING_PERIOD == 0:
+        #     # print("Warned up and ready")
+        #     for layer_name, _ in vae.named_parameters():
+        #         if 'fc' in layer_name and 'weight' in layer_name:
+        #             attribute_name = layer_name.split('.')[0]
+        #             base_layer_name = layer_name.rsplit('.', 1)[0]
+        #             indices = find_indices_to_drop(vae.state_dict(), base_layer_name)
+        #             current_layer = getattr(vae, attribute_name)
                     
-                    if isinstance(current_layer, nn.Sequential) and any(isinstance(layer, SelectiveDropout) for layer in current_layer):
-                        # If the layer is already a nn.Sequential with a SelectiveDropout, update the dropout layer
-                        for i, layer in enumerate(current_layer):
-                            if isinstance(layer, SelectiveDropout):
-                                current_layer[i] = SelectiveDropout(dropout_rate=0.5, neuron_indices=indices)
-                    else:
-                        # If it's not modified yet, add the dropout layer
-                        dropout_layer = SelectiveDropout(dropout_rate=0.5, neuron_indices=indices)
-                        modified_layer = nn.Sequential(current_layer, dropout_layer)
-                        setattr(vae, attribute_name, modified_layer)
+        #             if isinstance(current_layer, nn.Sequential) and any(isinstance(layer, SelectiveDropout) for layer in current_layer):
+        #                 # If the layer is already a nn.Sequential with a SelectiveDropout, update the dropout layer
+        #                 for i, layer in enumerate(current_layer):
+        #                     if isinstance(layer, SelectiveDropout):
+        #                         current_layer[i] = SelectiveDropout(dropout_rate=0.5, neuron_indices=indices)
+        #             else:
+        #                 # If it's not modified yet, add the dropout layer
+        #                 dropout_layer = SelectiveDropout(dropout_rate=0.5, neuron_indices=indices)
+        #                 modified_layer = nn.Sequential(current_layer, dropout_layer)
+        #                 setattr(vae, attribute_name, modified_layer)
 
         if (step+1) % args.log_freq == 0:
             logging.info('Train Step: {} ({:.0f}%)\t Avg Train Loss Per Batch: {:.6f}'.format(
@@ -414,7 +419,13 @@ def train_forget(labels_to_forget, optimizer_name, n_iter, vae, device, args, co
             forgetting_loss = 0
             ewc_loss = 0
     
-    state_dict_to_save = prune_model_using_dag(vae.state_dict())
+    # state_dict_to_save = prune_model_using_dag(vae.state_dict())
+    state_dict_to_save = vae.state_dict()
+    # remove .0. from the keys
+    for key in list(state_dict_to_save.keys()):
+        if '.0.' in key:
+            new_key = key.replace('.0.', '.')
+            state_dict_to_save[new_key] = state_dict_to_save.pop(key)
     #save the model
     torch.save({
             "model": state_dict_to_save,
@@ -427,6 +438,7 @@ def train_forget(labels_to_forget, optimizer_name, n_iter, vae, device, args, co
         },
         os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
 
+    cum_sum, avg_entropy = evaluate_with_classifier(config.ckpt_dir, CLASSIFIER_PATH, LEARNT_LABELS, labels_to_forget)
     save_fim(vae, device, args, config)
 
     return LEARNT_LABELS

@@ -391,16 +391,10 @@ from torchvision.utils import save_image
 
 def generate_samples(ckpt_folder, sample_path, classes_remembered, classes_not_remembered, n_samples=100, batch_size=32):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    try :
-        ckpt = torch.load(os.path.join(ckpt_folder, "ckpts/ckpt_modified.pt"), map_location=device)
-    except:
-        ckpt = torch.load(os.path.join(ckpt_folder, "ckpts/ckpt.pt"), map_location=device)
+    ckpt = torch.load(os.path.join(ckpt_folder, "ckpt_modified.pt"), map_location=device)
     config = ckpt['config']
     # build model
-    try :
-        vae = OneHotCVAE(x_dim=config.x_dim, h_dim1= ckpt['h_dims1'], h_dim2=ckpt['h_dim2'], z_dim=config.z_dim)
-    except:
-        vae = OneHotCVAE(x_dim=config.x_dim, h_dim1= 462, h_dim2=232, z_dim=config.z_dim)
+    vae = OneHotCVAE(x_dim=config.x_dim, h_dim1= ckpt['h_dims1'], h_dim2=ckpt['h_dims2'], z_dim=config.z_dim)
     vae = vae.to(device)
     
     vae.load_state_dict(ckpt['model'])
@@ -452,8 +446,10 @@ class ImagePathDataset(torch.utils.data.Dataset):
             #     for file in folder.glob('*.{}'.format(ext))]))
             images = sorted([file for ext in IMAGE_EXTENSIONS
                 for file in folder.glob('*.{}'.format(ext))])
-            self.files.extend(images)
-        
+            # self.files.extend(images)
+            # files = [(images, folder.name.split('_')[0])]
+            files = [(image, folder.name.split('_')[0]) for image in images]
+            self.files.extend(files)
         assert n is None or n <= len(self.files)
         self.n = len(self.files) if n is None else n
         
@@ -461,11 +457,11 @@ class ImagePathDataset(torch.utils.data.Dataset):
         return self.n
 
     def __getitem__(self, i):
-        path = self.files[i]
+        path, label = self.files[i]
         img = Image.open(path).convert('L')
         if self.transforms is not None:
             img = self.transforms(img)
-        return img
+        return img, label
 
 def GetImageFolderLoader(path, batch_size):
 
@@ -481,8 +477,8 @@ def GetImageFolderLoader(path, batch_size):
     
     return loader
 
-def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, classes_not_remembered, sample_path="./samples", batch_size=32):
-    # generate_samples(ckpt_folder, sample_path, classes_remembered, classes_not_remembered, n_samples=1000, batch_size=32)
+def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, classes_not_remembered, clean=True, sample_path="./samples", batch_size=32):
+    generate_samples(ckpt_folder, sample_path, classes_remembered, classes_not_remembered, n_samples=1000, batch_size=32)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = Classifier().to(device)
     model.eval()
@@ -496,15 +492,50 @@ def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, c
     forgotten_prob_cum_sum = 0
     remembered_prob_cum_sum = 0
     print("total samples ", n_samples)
-    for data in tqdm.tqdm(iter(loader), total=n_samples//batch_size):
+    cum_sum = {
+        0:0,
+        1:0,
+        2:0,
+        3:0,
+        4:0,
+        5:0,
+        6:0,
+        7:0,
+        8:0,
+        9:0
+    }
+    for data, label in tqdm.tqdm(iter(loader), total=n_samples//batch_size):
         log_probs = model(data.to(device)) # model outputs log_softmax
         probs = log_probs.exp()
         entropy = -torch.multiply(probs, log_probs).sum(1)
         avg_entropy = torch.sum(entropy)/n_samples
         entropy_cum_sum += avg_entropy.item()
-        for cls in classes_not_remembered:
-            forgotten_prob_cum_sum += (probs[:, cls] / (n_samples*len(classes_not_remembered)/(len(classes_remembered) + len(classes_not_remembered)))).sum().item()
-        for cls in classes_remembered:
-            remembered_prob_cum_sum += (probs[:, cls] / (n_samples*len(classes_remembered)/(len(classes_remembered) + len(classes_not_remembered)))).sum().item()
-        
-    return remembered_prob_cum_sum, forgotten_prob_cum_sum, entropy_cum_sum
+            # forgotten_prob_cum_sum += (probs[:, cls] / (n_samples*len(classes_not_remembered)/(len(classes_remembered) + len(classes_not_remembered)))).sum().item()
+            # cum_sum[cls] += probs[:, cls].sum().item() / (batch_size)
+            # check if the probs
+            # if cls == int(label):
+            #     # find the max probability position
+            #     max_prob = probs.argmax(1)
+            #     # increase the count of the class for which the max prob is cls
+            #     count = (max_prob == cls).sum().item()
+            #     cum_sum[cls] += count
+        for i in range(probs.shape[0]):
+            max_prob = probs[i].argmax()
+            if max_prob == int(label[i]):
+                cum_sum[max_prob.item()] += 1
+            # remembered_prob_cum_sum += (probs[:, cls] / (n_samples*len(classes_remembered)/(len(classes_remembered) + len(classes_not_remembered)))).sum().item()
+            # cum_sum[cls] += probs[:, cls].sum().item() / (batch_size)
+    
+    # print the class wise cum sum
+    for cls in cum_sum:
+        cum_sum[cls] = (cum_sum[cls]/ ((n_samples//batch_size)*batch_size)) * (len(classes_not_remembered) + len(classes_remembered))
+        if cls in classes_remembered:
+            print(f"REM    : Class {cls} : {cum_sum[cls]}")
+        else : 
+            print(f"FORGOT : Class {cls} : {cum_sum[cls]}")
+    
+    # remove the samples folder
+    if clean:
+        import shutil
+        shutil.rmtree(sample_path)
+    return cum_sum, entropy_cum_sum

@@ -1,4 +1,6 @@
-intial 1,2 100000
-learn 3,4 100000
-forget 4 100000
-learn 5 100000
+initial 1,2 75000
+learn 3,4 75000
+forget 4 40000
+learn 4 75000
+forget 1 40000
+learn 5 75000

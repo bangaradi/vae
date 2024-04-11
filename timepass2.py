@@ -42,14 +42,13 @@ import torch
 from utils import evaluate_with_classifier
 from model import OneHotCVAE
 
-ckpt_path = "/home/stud-1/aditya/vae/results/mnist/2024_04_09_165401"
+# ckpt_path = "/home/stud-1/aditya/vae/results/mnist/2024_04_09_165401/ckpts"
+ckpt_path = "/home/stud-1/aditya/vae/run0/mnist/initial/ckpts"
 classifier_path = "/home/stud-1/aditya/vae/classifier_ckpts/model.pt"
 
-model = torch.load(ckpt_path + "/ckpts/ckpt.pt", map_location='cuda')
+model = torch.load(ckpt_path + "/ckpt_modified.pt", map_location='cuda')
 
-rem, forgot, ent = evaluate_with_classifier(ckpt_path, classifier_path, [1,2,3,4,5,6,7,8,9], [0])
+rem, forgot, ent = evaluate_with_classifier(ckpt_path, classifier_path, [1,2,3,4], [])
 
 print(rem, forgot, ent)
-
-
 

@@ -6,4 +6,4 @@ h_dim1: 512
 h_dim2: 256
 z_dim: 8
 
-working_dir: run3
+working_dir: run6
