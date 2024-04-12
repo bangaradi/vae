@@ -49,7 +49,7 @@ class Classifier(nn.Module):
         self.bn2 = nn.BatchNorm2d(20)
         self.conv2_drop = nn.Dropout2d()
         self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 10)
+        self.fc2 = nn.Linear(50, 11) # changed from 10 to 11 for additional noise label
 
     def forward(self, x):
         x = F.relu(F.max_pool2d(self.bn1(self.conv1(x)), 2))
@@ -58,7 +58,7 @@ class Classifier(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.dropout(x, training=self.training)
         x = self.fc2(x)
-        return F.log_softmax(x)
+        return F.log_softmax(x, dim=1)
     
 class SelectiveDropout(nn.Module):
     def __init__(self, dropout_rate, neuron_indices):

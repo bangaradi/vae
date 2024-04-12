@@ -4,8 +4,8 @@ CUDA_VISIBLE_DEVICES="5" python calculate_fim.py --ckpt_folder /home/stud-1/adit
 
 CUDA_VISIBLE_DEVICES="5" python train_cvae_partial.py --config mnist.yaml --data_path ./dataset --labels_to_learn 1 2 
 
-CUDA_VISIBLE_DEVICES="5" python train_classifier.py --data_path ./dataset
+python train_classifier.py --data_path ./dataset
 
-CUDA_VISIBLE_DEVICES="5" python final.py --config mnist.yaml --data_path ./dataset --input_file input_file2.txt
+python final.py --config mnist.yaml --data_path ./dataset --input_file input_file2.txt
 # continual learning is without EWC
 # forgetting is with EWC

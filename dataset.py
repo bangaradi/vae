@@ -31,6 +31,27 @@ class MNIST_Custom(Dataset):
 
         return image, label
 
+class MNISTWithNoise(Dataset):
+    def __init__(self, mnist_dataset):
+        self.mnist_dataset = mnist_dataset
+        self.noise_label = 10  # Label for noise images
+        self.total_mnist = len(mnist_dataset)
+        self.noise_labels_length = self.total_mnist // 10  # Assuming MNIST is balanced
+
+    def __len__(self):
+        # Total length is MNIST images plus one noise image per label
+        return self.total_mnist + self.noise_labels_length
+
+    def __getitem__(self, idx):
+        if idx < self.total_mnist:
+            data, label = self.mnist_dataset[idx]
+        else:
+            # Generate a noise image
+            # Calculate idx for noise images starting after mnist dataset
+            data = torch.randn(1, 28, 28)
+            label = self.noise_label
+        return data, label
+
 # # Define the digits you want to include
 # selected_digits = [0, 1, 2]
 

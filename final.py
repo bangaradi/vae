@@ -12,6 +12,7 @@
 # --lmbda
 # --gamma
 # --input_file
+import gc
 import torch
 import torch.optim as optim
 import torch.nn.functional as F
@@ -35,7 +36,10 @@ BREATHING_PERIOD = 500
 WARMED_UP = 0
 HYPERPARAMETER_COMPRESS = 0.1
 HYPERPARAMETERS_EXPAND = 0.1
-CLASSIFIER_PATH = "/home/stud-1/aditya/vae/classifier_ckpts/model.pt"
+CLASSIFIER_PATH = './classifier_ckpts/model.pt'
+METRIC_PATH = {
+    'acc_path' : './metrics/acc.csv',
+}
 
 def parse_args_and_config():
     parser = argparse.ArgumentParser()
@@ -188,12 +192,12 @@ def train_initial(LEARNT_LABELS, labels_to_learn, optimizer_name, n_iter, device
             "labels": labels_to_learn,
             "fisher_dict": None, # TODO: save fisher dict
             "params_mle_dict": None, # TODO: save params_mle_dict
-            "h_dims1": state_dict_to_save['fc1.weight'].shape[0], #TODO
-            "h_dims2": state_dict_to_save['fc2.weight'].shape[0], #TODO
+            "h_dims1": state_dict_to_save['fc1.weight'].shape[0], #TODO:
+            "h_dims2": state_dict_to_save['fc2.weight'].shape[0], #TODO:
         },
         os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
     
-    cum_sum, avg_entropy = evaluate_with_classifier(config.ckpt_dir, CLASSIFIER_PATH, LEARNT_LABELS, [])
+    cum_sum, avg_entropy = evaluate_with_classifier(config.ckpt_dir, CLASSIFIER_PATH, LEARNT_LABELS, [], METRIC_PATH)
     save_fim(vae, device, args, config)
 
     return LEARNT_LABELS
@@ -213,6 +217,7 @@ def train_continual(labels_to_learn, optimizer_name, n_iter, vae, device, args, 
 
     vae_clone = copy.deepcopy(vae)
     vae_clone.eval()
+    
     # expand the model :
     print("EXPANDING MODEL")
     h_dim1 =int(vae.state_dict()['fc1.weight'].shape[0] * HYPERPARAMETERS_EXPAND) + vae.state_dict()['fc1.weight'].shape[0]
@@ -303,19 +308,19 @@ def train_continual(labels_to_learn, optimizer_name, n_iter, vae, device, args, 
             new_key = key.replace('.0.', '.')
             model_state_dict[new_key] = model_state_dict.pop(key)
     state_dict_to_save = model_state_dict
-    print("state_dict_to_save : ", state_dict_to_save.keys())
+    # print("state_dict_to_save : ", state_dict_to_save.keys())
     torch.save({
             "model": state_dict_to_save,
             "config": config,
             "labels": LEARNT_LABELS,
             "fisher_dict": None, # TODO: save fisher dict
             "params_mle_dict": None, # TODO: save params_mle_dict
-            "h_dims1": state_dict_to_save['fc1.weight'].shape[0], #TODO
-            "h_dims2": state_dict_to_save['fc2.weight'].shape[0], #TODO
+            "h_dims1": state_dict_to_save['fc1.weight'].shape[0], #TODO:
+            "h_dims2": state_dict_to_save['fc2.weight'].shape[0], #TODO:
         },
         os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
 
-    cum_sum, avg_entropy = evaluate_with_classifier(config.ckpt_dir, CLASSIFIER_PATH, LEARNT_LABELS, [])
+    cum_sum, avg_entropy = evaluate_with_classifier(config.ckpt_dir, CLASSIFIER_PATH, LEARNT_LABELS, [], METRIC_PATH)
     save_fim(vae, device, args, config)
     WARMED_UP = 0
     return LEARNT_LABELS
@@ -438,7 +443,7 @@ def train_forget(labels_to_forget, optimizer_name, n_iter, vae, device, args, co
         },
         os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
 
-    cum_sum, avg_entropy = evaluate_with_classifier(config.ckpt_dir, CLASSIFIER_PATH, LEARNT_LABELS, labels_to_forget)
+    cum_sum, avg_entropy = evaluate_with_classifier(config.ckpt_dir, CLASSIFIER_PATH, LEARNT_LABELS, labels_to_forget, METRIC_PATH)
     save_fim(vae, device, args, config)
 
     return LEARNT_LABELS
@@ -465,6 +470,7 @@ def test(labels_to_learn, vae, device, args):
 
 def sample(step, vae, device, args, config, folder_name, line_count):
     global LEARNT_LABELS
+    digits = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     vae.eval()
     # with torch.no_grad():
     #     # z = torch.randn((args.n_vis_samples, config.z_dim)).to(device)
@@ -488,13 +494,13 @@ def sample(step, vae, device, args, config, folder_name, line_count):
     with torch.no_grad():  # Disable gradient tracking
         # Total number of images to generate
         images_per_label = 10
-        total_images = len(LEARNT_LABELS) * images_per_label
+        total_images = len(digits) * images_per_label
 
         # Generate a batch of latent vectors
         z = torch.randn((total_images, config.z_dim)).to(device)
 
         # Generate labels for LEARNT_LABELS, repeating each label 10 times
-        labels_to_use = np.repeat(LEARNT_LABELS, images_per_label)
+        labels_to_use = np.repeat(digits, images_per_label)
         c = torch.tensor(labels_to_use, dtype=torch.long).to(device)
         c = F.one_hot(c, num_classes=10)  # Adjust num_classes as needed for your model
 
@@ -567,7 +573,7 @@ def main():
             checkpoint = torch.load(os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
             h_dim1 = checkpoint['h_dims1']
             h_dim2 = checkpoint['h_dims2']
-            print("h_dim1 : ", h_dim1, "h_dim2 : ", h_dim2)
+            # print("h_dim1 : ", h_dim1, "h_dim2 : ", h_dim2)
             vae = OneHotCVAE(x_dim=config.x_dim, h_dim1=h_dim1, h_dim2=h_dim2, z_dim=config.z_dim)
             vae.load_state_dict(checkpoint['model'])
             vae = vae.to(device)
@@ -580,7 +586,7 @@ def main():
             checkpoint = torch.load(os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
             h_dim1 = checkpoint['h_dims1']
             h_dim2 = checkpoint['h_dims2']
-            print("h_dim1 : ", h_dim1, "h_dim2 : ", h_dim2)
+            # print("h_dim1 : ", h_dim1, "h_dim2 : ", h_dim2)
             vae = OneHotCVAE(x_dim=config.x_dim, h_dim1=h_dim1, h_dim2=h_dim2, z_dim=config.z_dim)
             vae.load_state_dict(checkpoint['model'])
             vae = vae.to(device)

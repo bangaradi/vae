@@ -3,6 +3,7 @@ import torchvision
 import torch.nn.functional as F
 import os
 from model import Classifier
+from dataset import MNISTWithNoise
 import argparse
 
 def parse_args():
@@ -66,19 +67,32 @@ if __name__ == "__main__":
     
     os.makedirs("./classifier_ckpts", exist_ok=True)
 
-    train_loader = torch.utils.data.DataLoader(
-                    torchvision.datasets.MNIST(args.data_path, train=True, download=True,
-                                                transform=torchvision.transforms.Compose([
-                                                    torchvision.transforms.ToTensor()
-                                                ])),
-                                                batch_size=args.batch_size, shuffle=True)
 
-    test_loader = torch.utils.data.DataLoader(
-                    torchvision.datasets.MNIST(args.data_path, train=False, download=True,
-                                                transform=torchvision.transforms.Compose([
-                                                    torchvision.transforms.ToTensor()
-                                                ])),
-                                                batch_size=batch_size_test, shuffle=True)
+    mnist_train = torchvision.datasets.MNIST(args.data_path, train=True, download=True, 
+                                            transform=torchvision.transforms.ToTensor())
+    mnist_test = torchvision.datasets.MNIST(args.data_path, train=False, download=True,
+                                            transform=torchvision.transforms.ToTensor())
+    
+    train_dataset = MNISTWithNoise(mnist_train)
+    test_dataset = MNISTWithNoise(mnist_test)
+
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size_test, shuffle=True)
+
+    # train_loader = torch.utils.data.DataLoader(
+    #                 torchvision.datasets.MNIST(args.data_path, train=True, download=True,
+    #                                             transform=torchvision.transforms.Compose([
+    #                                                 torchvision.transforms.ToTensor()
+    #                                             ])),
+    #                                             batch_size=args.batch_size, shuffle=True)
+
+    # test_loader = torch.utils.data.DataLoader(
+    #                 torchvision.datasets.MNIST(args.data_path, train=False, download=True,
+    #                                             transform=torchvision.transforms.Compose([
+    #                                                 torchvision.transforms.ToTensor()
+    #                                             ])),
+    #                                             batch_size=batch_size_test, shuffle=True)
+    
 
 
     net = Classifier().to(device)

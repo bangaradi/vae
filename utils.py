@@ -2,6 +2,7 @@ import yaml
 from datetime import datetime
 import torch
 import os
+import pandas as pd
 # import wandb
 import argparse
 from torchvision import datasets, transforms
@@ -11,6 +12,8 @@ from model import Classifier, OneHotCVAE
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 import pathlib
+from collections import defaultdict
+from scipy.spatial.distance import jensenshannon
 
 IMAGE_EXTENSIONS = {'bmp', 'jpg', 'jpeg', 'pgm', 'png', 'ppm',
                     'tif', 'tiff', 'webp'}
@@ -477,8 +480,8 @@ def GetImageFolderLoader(path, batch_size):
     
     return loader
 
-def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, classes_not_remembered, clean=True, sample_path="./samples", batch_size=32):
-    generate_samples(ckpt_folder, sample_path, classes_remembered, classes_not_remembered, n_samples=1000, batch_size=32)
+def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, classes_not_remembered, metric_paths=None, clean=True, sample_path="./samples", batch_size=32):
+    generate_samples(ckpt_folder, sample_path, classes_remembered, classes_not_remembered, n_samples=100, batch_size=32)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = Classifier().to(device)
     model.eval()
@@ -525,7 +528,6 @@ def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, c
                 cum_sum[max_prob.item()] += 1
             # remembered_prob_cum_sum += (probs[:, cls] / (n_samples*len(classes_remembered)/(len(classes_remembered) + len(classes_not_remembered)))).sum().item()
             # cum_sum[cls] += probs[:, cls].sum().item() / (batch_size)
-    
     # print the class wise cum sum
     for cls in cum_sum:
         cum_sum[cls] = (cum_sum[cls]/ ((n_samples//batch_size)*batch_size)) * (len(classes_not_remembered) + len(classes_remembered))
@@ -534,6 +536,16 @@ def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, c
         else : 
             print(f"FORGOT : Class {cls} : {cum_sum[cls]}")
     
+    if metric_paths:
+        if not os.path.exists(metric_paths["acc_path"]):
+            df = pd.DataFrame(columns=['Ideal', 'Actual'])
+            df.to_csv(metric_paths["acc_path"], index=False)
+        # File exists, append new data
+        df = pd.read_csv(metric_paths["acc_path"])
+        new_row = {'Ideal': len(classes_remembered), 'Actual': sum(cum_sum[cls] for cls in classes_remembered)}
+        df = df.append(new_row, ignore_index=True)
+        df.to_csv(metric_paths["acc_path"], index=False)  # Save the updated DataFrame
+
     # remove the samples folder
     if clean:
         import shutil
