@@ -303,8 +303,9 @@ def prune_model_using_dag(model_state_dict, hyperparam_k = 0.1, type=1):
             new_key = key.replace('.0.', '.')
             model_state_dict[new_key] = model_state_dict.pop(key)
     # print the final shape of all the layers in the model
-    # for layer_name in model_state_dict:
-    #     print(f"Layer {layer_name} shape: {model_state_dict[layer_name].shape}")
+    print("after compression:")
+    for layer_name in model_state_dict:
+        print(f"Layer {layer_name} shape: {model_state_dict[layer_name].shape}")
 
     return model_state_dict
 
@@ -384,8 +385,9 @@ def expand_model(model_state_dict, hyperparam_e = 0.1, hyperparam_perturbation=0
             model_state_dict[new_key] = model_state_dict.pop(key)
 
     # print the final shape of all the layers in the model
-    # for layer_name in model_state_dict:
-        # print(f"Layer {layer_name} shape: {model_state_dict[layer_name].shape}")
+    print("after expansion:")
+    for layer_name in model_state_dict:
+        print(f"Layer {layer_name} shape: {model_state_dict[layer_name].shape}")
 
     return model_state_dict
 
@@ -478,6 +480,7 @@ def GetImageFolderLoader(path, batch_size):
     return loader
 
 def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, classes_not_remembered, metric_paths=None, config=None, clean=True, sample_path="./samples", batch_size=32):
+    sample_path = os.path.join(f"./{config.user}", config.working_dir, "samples")
     generate_samples(ckpt_folder, sample_path, classes_remembered, classes_not_remembered, n_samples=100, batch_size=32)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = Classifier().to(device)
@@ -502,9 +505,12 @@ def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, c
         6:0,
         7:0,
         8:0,
-        9:0
+        9:0,
+        10:0,
     }
+    counter = 0
     for data, label in tqdm.tqdm(iter(loader), total=n_samples//batch_size):
+        counter += 1
         log_probs = model(data.to(device)) # model outputs log_softmax
         probs = log_probs.exp()
         entropy = -torch.multiply(probs, log_probs).sum(1)
@@ -519,9 +525,13 @@ def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, c
             #     # increase the count of the class for which the max prob is cls
             #     count = (max_prob == cls).sum().item()
             #     cum_sum[cls] += count
+        if counter % 100 == 0:
+            print(probs.shape)
         for i in range(probs.shape[0]):
             max_prob = probs[i].argmax()
             if max_prob == int(label[i]):
+                if max_prob.item() == 10:
+                    print("found noise label")
                 cum_sum[max_prob.item()] += 1
             # remembered_prob_cum_sum += (probs[:, cls] / (n_samples*len(classes_remembered)/(len(classes_remembered) + len(classes_not_remembered)))).sum().item()
             # cum_sum[cls] += probs[:, cls].sum().item() / (batch_size)

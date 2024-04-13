@@ -33,19 +33,19 @@ from tqdm import tqdm
 from utils import get_config_and_setup_dirs_final, cycle, find_indices_to_drop, prune_model, prune_model_using_dag, expand_model, evaluate_with_classifier
 
 NUM_TRAIN_EPOCHS = {
-    1: 20000,
-    2: 40000,
-    3: 50000,
-    4: 50000,
-    5: 60000,
-    6: 65000,
-    7: 70000,
-    8: 100000,
-    9: 100000,
-    10: 100000,
+    1: 200,
+    2: 400,
+    3: 500,
+    4: 500,
+    5: 600,
+    6: 650,
+    7: 700,
+    8: 1000,
+    9: 1000,
+    10: 1000,
 }
-WARMUP_PERIOD = 1000
-BREATHING_PERIOD = 500
+WARMUP_PERIOD = 10
+BREATHING_PERIOD = 5
 WARMED_UP = 0
 HYPERPARAMETER_COMPRESS = 0.1
 HYPERPARAMETERS_EXPAND = 0.1
@@ -244,6 +244,11 @@ def train_continual(labels_to_learn, optimizer_name, n_iter, vae, device, args, 
     print("EXPANDING MODEL")
     h_dim1 =int(vae.state_dict()['fc1.weight'].shape[0] * HYPERPARAMETERS_EXPAND) + vae.state_dict()['fc1.weight'].shape[0]
     h_dim2 = int(vae.state_dict()['fc2.weight'].shape[0] * HYPERPARAMETERS_EXPAND) + vae.state_dict()['fc2.weight'].shape[0]
+    
+    print("before expanding the model")
+    for layer_name in vae.state_dict():
+        print(f"Layer {layer_name} shape: {vae.state_dict()[layer_name].shape}")
+        
     state_dict_expanded = expand_model(vae.state_dict(), HYPERPARAMETERS_EXPAND)
     vae = OneHotCVAE(x_dim=config.x_dim, h_dim1=h_dim1, h_dim2=h_dim2, z_dim=config.z_dim)
     vae.load_state_dict(state_dict_expanded)
@@ -290,25 +295,25 @@ def train_continual(labels_to_learn, optimizer_name, n_iter, vae, device, args, 
         optimizer.step()
 
         # ADDING SELECTIVE DROPOUT
-        # if WARMED_UP and step % BREATHING_PERIOD == 0:
-        #     # print("Warned up and ready")
-        #     for layer_name, _ in vae.named_parameters():
-        #         if 'fc' in layer_name and 'weight' in layer_name:
-        #             attribute_name = layer_name.split('.')[0]
-        #             base_layer_name = layer_name.rsplit('.', 1)[0]
-        #             indices = find_indices_to_drop(vae.state_dict(), base_layer_name)
-        #             current_layer = getattr(vae, attribute_name)
+        if WARMED_UP and step % BREATHING_PERIOD == 0:
+            # print("Warned up and ready")
+            for layer_name, _ in vae.named_parameters():
+                if 'fc' in layer_name and 'weight' in layer_name:
+                    attribute_name = layer_name.split('.')[0]
+                    base_layer_name = layer_name.rsplit('.', 1)[0]
+                    indices = find_indices_to_drop(vae.state_dict(), base_layer_name)
+                    current_layer = getattr(vae, attribute_name)
                     
-        #             if isinstance(current_layer, nn.Sequential) and any(isinstance(layer, SelectiveDropout) for layer in current_layer):
-        #                 # If the layer is already a nn.Sequential with a SelectiveDropout, update the dropout layer
-        #                 for i, layer in enumerate(current_layer):
-        #                     if isinstance(layer, SelectiveDropout):
-        #                         current_layer[i] = SelectiveDropout(dropout_rate=0.5, neuron_indices=indices)
-        #             else:
-        #                 # If it's not modified yet, add the dropout layer
-        #                 dropout_layer = SelectiveDropout(dropout_rate=0.5, neuron_indices=indices)
-        #                 modified_layer = nn.Sequential(current_layer, dropout_layer)
-        #                 setattr(vae, attribute_name, modified_layer)
+                    if isinstance(current_layer, nn.Sequential) and any(isinstance(layer, SelectiveDropout) for layer in current_layer):
+                        # If the layer is already a nn.Sequential with a SelectiveDropout, update the dropout layer
+                        for i, layer in enumerate(current_layer):
+                            if isinstance(layer, SelectiveDropout):
+                                current_layer[i] = SelectiveDropout(dropout_rate=0.5, neuron_indices=indices)
+                    else:
+                        # If it's not modified yet, add the dropout layer
+                        dropout_layer = SelectiveDropout(dropout_rate=0.5, neuron_indices=indices)
+                        modified_layer = nn.Sequential(current_layer, dropout_layer)
+                        setattr(vae, attribute_name, modified_layer)
 
         if (step+1) % args.log_freq == 0:
             logging.info('Train Step: {} ({:.0f}%)\t Avg Train Loss Per Batch: {:.6f}'.format(
@@ -366,6 +371,9 @@ def train_forget(labels_to_forget, optimizer_name, n_iter, vae, device, args, co
     with open(os.path.join(config.exp_root_dir, 'fisher_dict.pkl'), 'rb') as f:
         fisher_dict = pickle.load(f)
 
+    print("before compression:")
+    for layer_name in vae.state_dict():
+        print(f"Layer {layer_name} shape: {vae.state_dict()[layer_name].shape}")
 
     state_dict_pruned = prune_model_using_dag(vae.state_dict(), type=2)
     vae = OneHotCVAE(x_dim=config.x_dim, h_dim1=state_dict_pruned['fc1.weight'].shape[0], h_dim2=state_dict_pruned['fc2.weight'].shape[0], z_dim=config.z_dim)
@@ -414,25 +422,25 @@ def train_forget(labels_to_forget, optimizer_name, n_iter, vae, device, args, co
         optimizer.step()
 
         # ADDING SELECTIVE DROPOUT
-        # if WARMED_UP and step % BREATHING_PERIOD == 0:
-        #     # print("Warned up and ready")
-        #     for layer_name, _ in vae.named_parameters():
-        #         if 'fc' in layer_name and 'weight' in layer_name:
-        #             attribute_name = layer_name.split('.')[0]
-        #             base_layer_name = layer_name.rsplit('.', 1)[0]
-        #             indices = find_indices_to_drop(vae.state_dict(), base_layer_name)
-        #             current_layer = getattr(vae, attribute_name)
+        if WARMED_UP and step % BREATHING_PERIOD == 0:
+            # print("Warned up and ready")
+            for layer_name, _ in vae.named_parameters():
+                if 'fc' in layer_name and 'weight' in layer_name:
+                    attribute_name = layer_name.split('.')[0]
+                    base_layer_name = layer_name.rsplit('.', 1)[0]
+                    indices = find_indices_to_drop(vae.state_dict(), base_layer_name)
+                    current_layer = getattr(vae, attribute_name)
                     
-        #             if isinstance(current_layer, nn.Sequential) and any(isinstance(layer, SelectiveDropout) for layer in current_layer):
-        #                 # If the layer is already a nn.Sequential with a SelectiveDropout, update the dropout layer
-        #                 for i, layer in enumerate(current_layer):
-        #                     if isinstance(layer, SelectiveDropout):
-        #                         current_layer[i] = SelectiveDropout(dropout_rate=0.5, neuron_indices=indices)
-        #             else:
-        #                 # If it's not modified yet, add the dropout layer
-        #                 dropout_layer = SelectiveDropout(dropout_rate=0.5, neuron_indices=indices)
-        #                 modified_layer = nn.Sequential(current_layer, dropout_layer)
-        #                 setattr(vae, attribute_name, modified_layer)
+                    if isinstance(current_layer, nn.Sequential) and any(isinstance(layer, SelectiveDropout) for layer in current_layer):
+                        # If the layer is already a nn.Sequential with a SelectiveDropout, update the dropout layer
+                        for i, layer in enumerate(current_layer):
+                            if isinstance(layer, SelectiveDropout):
+                                current_layer[i] = SelectiveDropout(dropout_rate=0.5, neuron_indices=indices)
+                    else:
+                        # If it's not modified yet, add the dropout layer
+                        dropout_layer = SelectiveDropout(dropout_rate=0.5, neuron_indices=indices)
+                        modified_layer = nn.Sequential(current_layer, dropout_layer)
+                        setattr(vae, attribute_name, modified_layer)
 
         if (step+1) % args.log_freq == 0:
             logging.info('Train Step: {} ({:.0f}%)\t Avg Train Loss Per Batch: {:.6f}'.format(
