@@ -33,16 +33,16 @@ from tqdm import tqdm
 from utils import get_config_and_setup_dirs_final, cycle, find_indices_to_drop, prune_model, prune_model_using_dag, expand_model, evaluate_with_classifier
 
 NUM_TRAIN_EPOCHS = {
-    1: 200,
-    2: 400,
-    3: 500,
-    4: 500,
-    5: 600,
-    6: 650,
-    7: 700,
-    8: 1000,
-    9: 1000,
-    10: 1000,
+    1: 20000,
+    2: 40000,
+    3: 50000,
+    4: 50000,
+    5: 60000,
+    6: 65000,
+    7: 70000,
+    8: 100000,
+    9: 100000,
+    10: 100000,
 }
 WARMUP_PERIOD = 1000
 BREATHING_PERIOD = 500
@@ -570,33 +570,13 @@ def main():
         # get the number of lines in the file
         lines = file.readlines()
         # n_lines = len(lines)
-        
-    # initial_labels = [1,2]
-    # optimizer_name = 'adam'
-    # n_iter = 25000
-    # n_passes_completed = 0
-    # LEARNT_LABELS = train_initial(LEARNT_LABELS, initial_labels, optimizer_name, n_iter, device, args, config, n_passes_completed)
-    
-    # now forget 1
-    LEARNT_LABELS = [1,2]
-    labels_to_forget = [1]
-    optimizer_name = 'adam'
-    n_iter = 15000
-    n_passes_completed = 1
-    checkpoint = torch.load(os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
-    h_dim1 = checkpoint['h_dims1']
-    h_dim2 = checkpoint['h_dims2']
-    vae = OneHotCVAE(x_dim=config.x_dim, h_dim1=h_dim1, h_dim2=h_dim2, z_dim=config.z_dim)
-    vae.load_state_dict(checkpoint['model'])
-    vae = vae.to(device)
-    LEARNT_LABELS = train_forget(labels_to_forget, optimizer_name, n_iter, vae, device, args, config, n_passes_completed)
 
     # initial training
-    # initial_labels = random.sample(range(10), random.randint(1, 10))
-    # optimizer_name = 'adam'
-    # n_iter = NUM_TRAIN_EPOCHS[len(initial_labels)]
-    # n_passes_completed = 0
-    # LEARNT_LABELS = train_initial(LEARNT_LABELS, initial_labels, optimizer_name, n_iter, device, args, config, n_passes_completed)
+    initial_labels = random.sample(range(10), random.randint(1, 10))
+    optimizer_name = 'adam'
+    n_iter = NUM_TRAIN_EPOCHS[len(initial_labels)]
+    n_passes_completed = 0
+    LEARNT_LABELS = train_initial(LEARNT_LABELS, initial_labels, optimizer_name, n_iter, device, args, config, n_passes_completed)
 
     n_passes = args.n_passes
     
