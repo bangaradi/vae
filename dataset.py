@@ -36,7 +36,7 @@ class MNISTWithNoise(Dataset):
         self.mnist_dataset = mnist_dataset
         self.noise_label = 10  # Label for noise images
         self.total_mnist = len(mnist_dataset)
-        self.noise_labels_length = self.total_mnist // 10  # Assuming MNIST is balanced
+        self.noise_labels_length = self.total_mnist // 10
 
     def __len__(self):
         # Total length is MNIST images plus one noise image per label
@@ -47,7 +47,6 @@ class MNISTWithNoise(Dataset):
             data, label = self.mnist_dataset[idx]
         else:
             # Generate a noise image
-            # Calculate idx for noise images starting after mnist dataset
             data = torch.randn(1, 28, 28)
             label = self.noise_label
         return data, label

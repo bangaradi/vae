@@ -1,0 +1,1 @@
+* Update mnist.yaml/create multiple mnist.yaml

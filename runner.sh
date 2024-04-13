@@ -7,5 +7,7 @@ CUDA_VISIBLE_DEVICES="5" python train_cvae_partial.py --config mnist.yaml --data
 python train_classifier.py --data_path ./dataset
 
 python final.py --config mnist.yaml --data_path ./dataset --input_file input_file2.txt
+
+python final.py --config mnist.yaml --data_path ./dataset --input_file input_file2.txt --n_passes 10
 # continual learning is without EWC
 # forgetting is with EWC

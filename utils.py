@@ -6,6 +6,9 @@ import pandas as pd
 # import wandb
 import argparse
 from torchvision import datasets, transforms
+import tqdm
+import torch.nn.functional as F
+from torchvision.utils import save_image
 import copy
 from PIL import Image
 from model import Classifier, OneHotCVAE
@@ -44,7 +47,7 @@ def get_config_and_setup_dirs_final(working_dir):
     config = dict2namespace(config)
     
     # timestamp = datetime.now().strftime("%Y_%m_%d_%H%M%S")
-    config.exp_root_dir = os.path.join(f"./{config.working_dir}", config.dataset.lower(), "initial")
+    config.exp_root_dir = os.path.join(f"./{config.user}/{config.working_dir}", config.dataset.lower(), "initial")
     config.log_dir = os.path.join(config.exp_root_dir, 'logs')
     config.ckpt_dir = os.path.join(config.exp_root_dir, 'ckpts')
     if not os.path.exists(config.exp_root_dir):
@@ -162,25 +165,25 @@ def prune_model(model_state_dict):
     for layer_name in list(model_state_dict.keys()):  # Convert to list to make a static copy of keys
         prune_left = True
         prune_right = True
-        print("layer_name ", layer_name)
+        # print("layer_name ", layer_name)
         if 'fc' in layer_name and 'weight' in layer_name:
             attribute_name = layer_name.split('.')[0]
             base_layer_name = layer_name.rsplit('.', 1)[0]
             indices_to_drop = find_indices_to_drop(model_state_dict, base_layer_name)
-            print(f"Pruning {len(indices_to_drop)} neurons from {base_layer_name}")
+            # print(f"Pruning {len(indices_to_drop)} neurons from {base_layer_name}")
 
             device = model_state_dict[base_layer_name + '.weight'].device
 
             # Creating a mask for all indices initially set to keep (True)
             layer_shape = model_state_dict[base_layer_name + '.weight'].shape
-            print("layer_shape ", layer_shape)
+            # print("layer_shape ", layer_shape)
             if layer_shape[1] == 794:
                 prune_right = False
             if layer_shape[0] == 784:
                 prune_left = False
 
             if prune_left:
-                print("inside prune left")
+                # print("inside prune left")
                 total_indices = model_state_dict[base_layer_name + '.weight'].shape[0]
                 mask = torch.ones(total_indices, dtype=torch.bool, device=device)
                 mask[indices_to_drop] = False  # Setting indices to drop to False
@@ -194,11 +197,11 @@ def prune_model(model_state_dict):
                     pruned_bias = model_state_dict[base_layer_name + '.bias'][mask]
                     model_state_dict[base_layer_name + '.bias'] = pruned_bias
 
-                print("Pruned weight shape: ", pruned_weight.shape)
-                if base_layer_name + '.bias' in model_state_dict:
-                    print("Pruned bias shape: ", pruned_bias.shape)
+                # print("Pruned weight shape: ", pruned_weight.shape)
+                # if base_layer_name + '.bias' in model_state_dict:
+                    # print("Pruned bias shape: ", pruned_bias.shape)
             if prune_right and last_indices[-1]['total_indices'] == model_state_dict[base_layer_name + '.weight'].shape[1]:
-                print("inside prune right")
+                # print("inside prune right")
                 total_indices = model_state_dict[base_layer_name + '.weight'].shape[1]
                 mask = torch.ones(total_indices, dtype=torch.bool, device=device)
                 mask[last_indices[-1]['indices_to_drop']] = False
@@ -207,7 +210,7 @@ def prune_model(model_state_dict):
                 pruned_weight = model_state_dict[base_layer_name + '.weight'][:, mask]
                 model_state_dict[base_layer_name + '.weight'] = pruned_weight
 
-                print("Pruned weight shape: ", pruned_weight.shape)
+                # print("Pruned weight shape: ", pruned_weight.shape)
             
             last_indices.append({'total_indices': total_indices, 'indices_to_drop': indices_to_drop})
         # print the final shape of all the layers in the model
@@ -218,8 +221,8 @@ def prune_model(model_state_dict):
             new_key = key.replace('.0.', '.')
             model_state_dict[new_key] = model_state_dict.pop(key)
 
-    for layer_name in model_state_dict:
-        print(f"Layer {layer_name} shape: {model_state_dict[layer_name].shape}")
+    # for layer_name in model_state_dict:
+    #     print(f"Layer {layer_name} shape: {model_state_dict[layer_name].shape}")
         
     return model_state_dict
 
@@ -240,14 +243,14 @@ def prune_model_using_dag(model_state_dict, hyperparam_k = 0.1, type=1):
         # get the first in the list
         start_layer = layers_to_prune.pop(0)
         prune_right = False
-        print("start_layer ", start_layer)
+        # print("start_layer ", start_layer)
         attribute_name = start_layer.split('.')[0]
         base_layer_name = start_layer.rsplit('.', 1)[0]
 
         device = model_state_dict[base_layer_name + '.weight'].device
 
         layer_shape = model_state_dict[base_layer_name + '.weight'].shape
-        print("layer_shape ", layer_shape)
+        # print("layer_shape ", layer_shape)
         # check if this layer has any parent in the dag
         parent_layer = None
         for key in dag:
@@ -262,7 +265,7 @@ def prune_model_using_dag(model_state_dict, hyperparam_k = 0.1, type=1):
                 prune_right = False
         
         indices_to_drop = find_indices_to_drop(model_state_dict, base_layer_name, hyperparam_k)
-        print(f"Pruning {len(indices_to_drop)} neurons from {base_layer_name}")
+        # print(f"Pruning {len(indices_to_drop)} neurons from {base_layer_name}")
 
         # drop the first dimension
         if len(indices_to_drop) != 0:
@@ -278,14 +281,12 @@ def prune_model_using_dag(model_state_dict, hyperparam_k = 0.1, type=1):
                     pruned_bias = model_state_dict[base_layer_name + '.bias'][mask]
                     model_state_dict[base_layer_name + '.bias'] = pruned_bias
 
-                print("Pruned weight shape: ", pruned_weight.shape)
-                if base_layer_name + '.bias' in model_state_dict:
-                    print("Pruned bias shape: ", pruned_bias.shape)
+                # print("Pruned weight shape: ", pruned_weight.shape)
+                # if base_layer_name + '.bias' in model_state_dict:
+                    # print("Pruned bias shape: ", pruned_bias.shape)
         
         # drop the second dimension
         if prune_right:
-            print("inside prune right")
-            print("parent_layer ", parent_layer)
             if base_layer_name + '.weight' in model_state_dict:
                 total_indices = model_state_dict[base_layer_name + '.weight'].shape[1]
                 mask = torch.ones(total_indices, dtype=torch.bool, device=device)
@@ -294,7 +295,7 @@ def prune_model_using_dag(model_state_dict, hyperparam_k = 0.1, type=1):
                 pruned_weight = model_state_dict[base_layer_name + '.weight'][:, mask]
                 model_state_dict[base_layer_name + '.weight'] = pruned_weight
 
-                print("Pruned weight shape: ", pruned_weight.shape)
+                # print("Pruned weight shape: ", pruned_weight.shape)
         layers_done.add(start_layer)
     
     for key in list(model_state_dict.keys()):
@@ -302,8 +303,8 @@ def prune_model_using_dag(model_state_dict, hyperparam_k = 0.1, type=1):
             new_key = key.replace('.0.', '.')
             model_state_dict[new_key] = model_state_dict.pop(key)
     # print the final shape of all the layers in the model
-    for layer_name in model_state_dict:
-        print(f"Layer {layer_name} shape: {model_state_dict[layer_name].shape}")
+    # for layer_name in model_state_dict:
+    #     print(f"Layer {layer_name} shape: {model_state_dict[layer_name].shape}")
 
     return model_state_dict
 
@@ -322,14 +323,14 @@ def expand_model(model_state_dict, hyperparam_e = 0.1, hyperparam_perturbation=0
     while len(layers_to_expand) != 0:
         start_layer = layers_to_expand.pop(0)
         expand_right = False
-        print("start_layer ", start_layer)
+        # print("start_layer ", start_layer)
         attribute_name = start_layer.split('.')[0]
         base_layer_name = start_layer.rsplit('.', 1)[0]
 
         device = model_state_dict[base_layer_name + '.weight'].device
 
         layer_shape = model_state_dict[base_layer_name + '.weight'].shape
-        print("layer_shape ", layer_shape)
+        # print("layer_shape ", layer_shape)
         # check if this layer has any parent in the dag
         parent_layer = None
         for key in dag:
@@ -339,13 +340,13 @@ def expand_model(model_state_dict, hyperparam_e = 0.1, hyperparam_perturbation=0
         if parent_layer is not None:
             if parent_layer in layers_done:
                 amount_to_expand2 = model_state_dict_copy[parent_layer.rsplit('.', 1)[0] + '.weight'].shape[0]*hyperparam_e
-                print("amount_to_expand2 ", amount_to_expand2)
+                # print("amount_to_expand2 ", amount_to_expand2)
                 expand_right = True
             else:
                 expand_right = False
         
         amount_to_expand = model_state_dict_copy[base_layer_name + '.weight'].shape[0]*hyperparam_e
-        print(f"Expanding {amount_to_expand} neurons from {base_layer_name}")
+        # print(f"Expanding {amount_to_expand} neurons from {base_layer_name}")
 
         # expand the first dimension
         if int(amount_to_expand) != 0 and base_layer_name != 'fc6' and base_layer_name != 'fc31' and base_layer_name != 'fc32':
@@ -360,21 +361,21 @@ def expand_model(model_state_dict, hyperparam_e = 0.1, hyperparam_perturbation=0
                     expanded_bias = torch.cat((model_state_dict[base_layer_name + '.bias'], new_bias), dim=0)
                     model_state_dict[base_layer_name + '.bias'] = expanded_bias
 
-                print("Expanded weight shape: ", expanded_weights.shape)
-                if base_layer_name + '.bias' in model_state_dict:
-                    print("Expanded bias shape: ", expanded_bias.shape)
+                # print("Expanded weight shape: ", expanded_weights.shape)
+                # if base_layer_name + '.bias' in model_state_dict:
+                    # print("Expanded bias shape: ", expanded_bias.shape)
         
         # expand the second dimension
         if expand_right:
-            print("inside expand right")
-            print("parent_layer ", parent_layer)
+            # print("inside expand right")
+            # print("parent_layer ", parent_layer)
             if base_layer_name + '.weight' in model_state_dict:
                 num_new_neurons = int(amount_to_expand2)
                 new_weights = (torch.randn(model_state_dict[base_layer_name + '.weight'].shape[0], num_new_neurons)*hyperparam_perturbation).to(device)
                 expanded_weights = torch.cat((model_state_dict[base_layer_name + '.weight'], new_weights), dim=1)
                 model_state_dict[base_layer_name + '.weight'] = expanded_weights
 
-                print("Expanded weight shape: ", expanded_weights.shape)
+                # print("Expanded weight shape: ", expanded_weights.shape)
         layers_done.add(start_layer)
 
     for key in list(model_state_dict.keys()):
@@ -383,14 +384,10 @@ def expand_model(model_state_dict, hyperparam_e = 0.1, hyperparam_perturbation=0
             model_state_dict[new_key] = model_state_dict.pop(key)
 
     # print the final shape of all the layers in the model
-    for layer_name in model_state_dict:
-        print(f"Layer {layer_name} shape: {model_state_dict[layer_name].shape}")
+    # for layer_name in model_state_dict:
+        # print(f"Layer {layer_name} shape: {model_state_dict[layer_name].shape}")
 
     return model_state_dict
-
-import tqdm
-import torch.nn.functional as F
-from torchvision.utils import save_image
 
 def generate_samples(ckpt_folder, sample_path, classes_remembered, classes_not_remembered, n_samples=100, batch_size=32):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -480,7 +477,7 @@ def GetImageFolderLoader(path, batch_size):
     
     return loader
 
-def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, classes_not_remembered, metric_paths=None, clean=True, sample_path="./samples", batch_size=32):
+def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, classes_not_remembered, metric_paths=None, config=None, clean=True, sample_path="./samples", batch_size=32):
     generate_samples(ckpt_folder, sample_path, classes_remembered, classes_not_remembered, n_samples=100, batch_size=32)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = Classifier().to(device)
@@ -537,14 +534,30 @@ def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, c
             print(f"FORGOT : Class {cls} : {cum_sum[cls]}")
     
     if metric_paths:
-        if not os.path.exists(metric_paths["acc_path"]):
+        metric_folder = os.path.join(f"./{config.user}", config.working_dir, "metrics")
+        if not os.path.exists(metric_folder):
+            os.makedirs(metric_folder, exist_ok=True)
+        acc_path = os.path.join(f"./{config.user}", config.working_dir, metric_paths["acc_path"])
+        # Initialize DataFrame either by reading the existing file or creating a new one
+        if not os.path.exists(acc_path):
             df = pd.DataFrame(columns=['Ideal', 'Actual'])
-            df.to_csv(metric_paths["acc_path"], index=False)
-        # File exists, append new data
-        df = pd.read_csv(metric_paths["acc_path"])
-        new_row = {'Ideal': len(classes_remembered), 'Actual': sum(cum_sum[cls] for cls in classes_remembered)}
-        df = df.append(new_row, ignore_index=True)
-        df.to_csv(metric_paths["acc_path"], index=False)  # Save the updated DataFrame
+        else:
+            df = pd.read_csv(acc_path)
+
+        new_row = pd.DataFrame({'Ideal': [len(classes_remembered)], 'Actual': [sum(cum_sum[cls] for cls in classes_remembered)]})
+        df = pd.concat([df, new_row], ignore_index=True)
+        df.to_csv(acc_path, index=False)
+        
+        accuracy_values = os.path.join(f"./{config.user}", config.working_dir, metric_paths["accuracy_values"])
+        if not os.path.exists(accuracy_values):
+            df = pd.DataFrame(columns=['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'])
+        else:
+            df = pd.read_csv(accuracy_values)
+        
+        new_row = pd.DataFrame({'0': [cum_sum[0]], '1': [cum_sum[1]], '2': [cum_sum[2]], '3': [cum_sum[3]], '4': [cum_sum[4]], '5': [cum_sum[5]], '6': [cum_sum[6]], '7': [cum_sum[7]], '8': [cum_sum[8]], '9': [cum_sum[9]]})
+        df = pd.concat([df, new_row], ignore_index=True)
+        df.to_csv(accuracy_values, index=False)
+
 
     # remove the samples folder
     if clean:

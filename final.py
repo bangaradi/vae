@@ -26,11 +26,24 @@ import os
 import argparse
 import logging
 import copy
+import random
 from dataset import MNIST_Custom
 import numpy as np
 from tqdm import tqdm
 from utils import get_config_and_setup_dirs_final, cycle, find_indices_to_drop, prune_model, prune_model_using_dag, expand_model, evaluate_with_classifier
 
+NUM_TRAIN_EPOCHS = {
+    1: 200,
+    2: 400,
+    3: 500,
+    4: 500,
+    5: 600,
+    6: 650,
+    7: 700,
+    8: 1000,
+    9: 1000,
+    10: 1000,
+}
 WARMUP_PERIOD = 1000
 BREATHING_PERIOD = 500
 WARMED_UP = 0
@@ -38,7 +51,8 @@ HYPERPARAMETER_COMPRESS = 0.1
 HYPERPARAMETERS_EXPAND = 0.1
 CLASSIFIER_PATH = './classifier_ckpts/model.pt'
 METRIC_PATH = {
-    'acc_path' : './metrics/acc.csv',
+    'accuracy_values' : 'metrics/accuracy_values.csv',
+    'acc_path' : 'metrics/acc.csv',
 }
 
 def parse_args_and_config():
@@ -97,6 +111,14 @@ def parse_args_and_config():
 
     parser.add_argument(
         "--input_file", type=str, help='path to the input file'
+    )
+    
+    parser.add_argument(
+        "--user", type=str, default="sid", help='name of the user'
+    )
+    
+    parser.add_argument(
+        "--n_passes", type=int, default=10, help='number of learning and unlearning passes for the model'
     )
 
     args = parser.parse_args()
@@ -197,7 +219,7 @@ def train_initial(LEARNT_LABELS, labels_to_learn, optimizer_name, n_iter, device
         },
         os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
     
-    cum_sum, avg_entropy = evaluate_with_classifier(config.ckpt_dir, CLASSIFIER_PATH, LEARNT_LABELS, [], METRIC_PATH)
+    cum_sum, avg_entropy = evaluate_with_classifier(config.ckpt_dir, CLASSIFIER_PATH, LEARNT_LABELS, [], METRIC_PATH, config)
     save_fim(vae, device, args, config)
 
     return LEARNT_LABELS
@@ -320,7 +342,7 @@ def train_continual(labels_to_learn, optimizer_name, n_iter, vae, device, args, 
         },
         os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
 
-    cum_sum, avg_entropy = evaluate_with_classifier(config.ckpt_dir, CLASSIFIER_PATH, LEARNT_LABELS, [], METRIC_PATH)
+    cum_sum, avg_entropy = evaluate_with_classifier(config.ckpt_dir, CLASSIFIER_PATH, LEARNT_LABELS, [], METRIC_PATH, config)
     save_fim(vae, device, args, config)
     WARMED_UP = 0
     return LEARNT_LABELS
@@ -443,7 +465,7 @@ def train_forget(labels_to_forget, optimizer_name, n_iter, vae, device, args, co
         },
         os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
 
-    cum_sum, avg_entropy = evaluate_with_classifier(config.ckpt_dir, CLASSIFIER_PATH, LEARNT_LABELS, labels_to_forget, METRIC_PATH)
+    cum_sum, avg_entropy = evaluate_with_classifier(config.ckpt_dir, CLASSIFIER_PATH, LEARNT_LABELS, labels_to_forget, METRIC_PATH, config)
     save_fim(vae, device, args, config)
 
     return LEARNT_LABELS
@@ -525,7 +547,7 @@ def main():
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     args, config = parse_args_and_config()
-    # print(args, config)
+    # print(args)
     # logging.info(f"Beginning basic training of conditional VAE")
 
     
@@ -547,52 +569,119 @@ def main():
     with open(args.input_file, 'r') as file:
         # get the number of lines in the file
         lines = file.readlines()
-        n_lines = len(lines)
+        # n_lines = len(lines)
+        
+    # initial_labels = [1,2]
+    # optimizer_name = 'adam'
+    # n_iter = 25000
+    # n_passes_completed = 0
+    # LEARNT_LABELS = train_initial(LEARNT_LABELS, initial_labels, optimizer_name, n_iter, device, args, config, n_passes_completed)
+    
+    # now forget 1
+    LEARNT_LABELS = [1,2]
+    labels_to_forget = [1]
+    optimizer_name = 'adam'
+    n_iter = 15000
+    n_passes_completed = 1
+    checkpoint = torch.load(os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
+    h_dim1 = checkpoint['h_dims1']
+    h_dim2 = checkpoint['h_dims2']
+    vae = OneHotCVAE(x_dim=config.x_dim, h_dim1=h_dim1, h_dim2=h_dim2, z_dim=config.z_dim)
+    vae.load_state_dict(checkpoint['model'])
+    vae = vae.to(device)
+    LEARNT_LABELS = train_forget(labels_to_forget, optimizer_name, n_iter, vae, device, args, config, n_passes_completed)
+
+    # initial training
+    # initial_labels = random.sample(range(10), random.randint(1, 10))
+    # optimizer_name = 'adam'
+    # n_iter = NUM_TRAIN_EPOCHS[len(initial_labels)]
+    # n_passes_completed = 0
+    # LEARNT_LABELS = train_initial(LEARNT_LABELS, initial_labels, optimizer_name, n_iter, device, args, config, n_passes_completed)
+
+    n_passes = args.n_passes
+    
+    while n_passes_completed < n_passes:
+        print(f"currently on pass number  {n_passes_completed}")
+        action = random.randint(0, 1)  # 0 for forget, 1 for learn
+        
+        if action == 0:
+            # if LEARNED_LABELS is empty, we can't forget anything, so go to the start of the loop again
+            if len(LEARNT_LABELS) == 0:
+                continue
+            # sample (without replacement) a random number of labels to forget from the learnt labels
+            labels_to_forget = random.sample(LEARNT_LABELS, random.randint(1, len(LEARNT_LABELS)))
+            if len(labels_to_forget) == len(LEARNT_LABELS):
+                continue # cannot unlearn entire model
+            print(f"forgetting the labels {labels_to_forget}")
+            n_iter = NUM_TRAIN_EPOCHS[len(labels_to_forget)]
+        else:
+            if len(LEARNT_LABELS) == 10:
+                continue
+            # sample (without replacement) a random set of labels to learn - and no label should belong to LEARNED_LABELS
+            labels_to_learn = random.sample([i for i in range(10) if i not in LEARNT_LABELS], random.randint(1, 10 - len(LEARNT_LABELS)))
+            print(f"learning the labels {labels_to_learn}")
+            n_iter = NUM_TRAIN_EPOCHS[len(labels_to_learn)]
+        
+        optimizer_name = 'adam'
+        # load the vae
+        checkpoint = torch.load(os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
+        h_dim1 = checkpoint['h_dims1']
+        h_dim2 = checkpoint['h_dims2']
+        vae = OneHotCVAE(x_dim=config.x_dim, h_dim1=h_dim1, h_dim2=h_dim2, z_dim=config.z_dim)
+        vae.load_state_dict(checkpoint['model'])
+        vae = vae.to(device)
+        
+        if action == 0:
+            LEARNT_LABELS = train_forget(labels_to_forget, optimizer_name, n_iter, vae, device, args, config, n_passes_completed)
+        else:
+            LEARNT_LABELS = train_continual(labels_to_learn, optimizer_name, n_iter, vae, device, args, config, n_passes_completed)
+        
+        n_passes_completed += 1
 
     
-    line_count = 0
-    # first line : initial training details 
-    line = lines[line_count]
-    line = line.strip().split()
-    labels_to_learn = [int(i) for i in line[1].split(',')]
-    optimizer_name = 'adam'
-    n_iter = int(line[2])
-    LEARNT_LABELS = train_initial(LEARNT_LABELS, labels_to_learn, optimizer_name, n_iter, device, args, config, line_count)
+    # # first line : initial training details 
+    # line_count = 0
+    # line = lines[line_count]
+    # line = line.strip().split()
+    # labels_to_learn = [int(i) for i in line[1].split(',')]
+    # optimizer_name = 'adam'
+    # n_iter = int(line[2])
+    # LEARNT_LABELS = train_initial(LEARNT_LABELS, labels_to_learn, optimizer_name, n_iter, device, args, config, line_count)
 
-    while True:
-        line_count += 1
-        if line_count >= n_lines:
-            break
-        line = lines[line_count]
-        line = line.strip().split()
-        if line[0] == 'learn':
-            labels_to_learn = [int(i) for i in line[1].split(',')]
-            optimizer_name = 'adam'
-            n_iter = int(line[2])
-            # load the vae
-            checkpoint = torch.load(os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
-            h_dim1 = checkpoint['h_dims1']
-            h_dim2 = checkpoint['h_dims2']
-            # print("h_dim1 : ", h_dim1, "h_dim2 : ", h_dim2)
-            vae = OneHotCVAE(x_dim=config.x_dim, h_dim1=h_dim1, h_dim2=h_dim2, z_dim=config.z_dim)
-            vae.load_state_dict(checkpoint['model'])
-            vae = vae.to(device)
-            LEARNT_LABELS = train_continual(labels_to_learn, optimizer_name, n_iter, vae, device, args, config, line_count)
-        elif line[0] == 'forget':
-            labels_to_forget = [int(i) for i in line[1].split(',')]
-            optimizer_name = 'adam'
-            n_iter = int(line[2])
-            # load the vae
-            checkpoint = torch.load(os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
-            h_dim1 = checkpoint['h_dims1']
-            h_dim2 = checkpoint['h_dims2']
-            # print("h_dim1 : ", h_dim1, "h_dim2 : ", h_dim2)
-            vae = OneHotCVAE(x_dim=config.x_dim, h_dim1=h_dim1, h_dim2=h_dim2, z_dim=config.z_dim)
-            vae.load_state_dict(checkpoint['model'])
-            vae = vae.to(device)
-            LEARNT_LABELS = train_forget(labels_to_forget, optimizer_name, n_iter, vae, device, args, config, line_count)
-        else:
-            continue
+    # while True:
+    #     line_count += 1
+    #     # if line_count >= n_lines:
+    #     #     break
+    #     line = lines[line_count]
+    #     line = line.strip().split()
+    #     if line[0] == 'learn':
+    #         labels_to_learn = [int(i) for i in line[1].split(',')]
+    #         optimizer_name = 'adam'
+    #         n_iter = int(line[2])
+    #         # load the vae
+    #         checkpoint = torch.load(os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
+    #         h_dim1 = checkpoint['h_dims1']
+    #         h_dim2 = checkpoint['h_dims2']
+    #         # print("h_dim1 : ", h_dim1, "h_dim2 : ", h_dim2)
+    #         vae = OneHotCVAE(x_dim=config.x_dim, h_dim1=h_dim1, h_dim2=h_dim2, z_dim=config.z_dim)
+    #         vae.load_state_dict(checkpoint['model'])
+    #         vae = vae.to(device)
+    #         LEARNT_LABELS = train_continual(labels_to_learn, optimizer_name, n_iter, vae, device, args, config, line_count)
+    #     elif line[0] == 'forget':
+    #         labels_to_forget = [int(i) for i in line[1].split(',')]
+    #         optimizer_name = 'adam'
+    #         n_iter = int(line[2])
+    #         # load the vae
+    #         checkpoint = torch.load(os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
+    #         h_dim1 = checkpoint['h_dims1']
+    #         h_dim2 = checkpoint['h_dims2']
+    #         # print("h_dim1 : ", h_dim1, "h_dim2 : ", h_dim2)
+    #         vae = OneHotCVAE(x_dim=config.x_dim, h_dim1=h_dim1, h_dim2=h_dim2, z_dim=config.z_dim)
+    #         vae.load_state_dict(checkpoint['model'])
+    #         vae = vae.to(device)
+    #         LEARNT_LABELS = train_forget(labels_to_forget, optimizer_name, n_iter, vae, device, args, config, line_count)
+    #     else:
+    #         continue
 
 main()
 print("Done") # (TODO: remove this line)
