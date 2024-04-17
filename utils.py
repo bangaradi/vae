@@ -481,14 +481,23 @@ def GetImageFolderLoader(path, batch_size):
 
 def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, classes_not_remembered, metric_paths=None, config=None, clean=True, sample_path="./samples", batch_size=32):
     sample_path = os.path.join(f"./{config.user}", config.working_dir, "samples")
-    generate_samples(ckpt_folder, sample_path, classes_remembered, classes_not_remembered, n_samples=100, batch_size=32)
+    generate_samples(ckpt_folder, sample_path, classes_remembered, classes_not_remembered, n_samples=2000, batch_size=1)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = Classifier().to(device)
-    model.eval()
-    ckpt = torch.load(classifier_path, map_location=device)
-    model.load_state_dict(ckpt)
+    # model = Classifier().to(device)
+    # model.eval()
+    # ckpt = torch.load(classifier_path, map_location=device)
+    # model.load_state_dict(ckpt)
+    ensemble_models = []
+    for path in classifier_path:
+        model = Classifier(output_dim=10)
+        ckpt = torch.load(path, map_location=device)
+        model.load_state_dict(ckpt)
+        model = model.to(device)
+        model.eval()
+        ensemble_models.append(model)
+
     
-    loader = GetImageFolderLoader(sample_path, batch_size=32)
+    loader = GetImageFolderLoader(sample_path, batch_size=1)
     n_samples = len(loader.dataset)
     
     entropy_cum_sum = 0
@@ -509,13 +518,21 @@ def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, c
         10:0,
     }
     counter = 0
-    for data, label in tqdm.tqdm(iter(loader), total=n_samples//batch_size):
-        counter += 1
-        log_probs = model(data.to(device)) # model outputs log_softmax
-        probs = log_probs.exp()
-        entropy = -torch.multiply(probs, log_probs).sum(1)
-        avg_entropy = torch.sum(entropy)/n_samples
-        entropy_cum_sum += avg_entropy.item()
+    for data, label in tqdm.tqdm(iter(loader), total=n_samples):
+        preds = []
+        for model in ensemble_models:
+            log_probs = model(data.to(device))
+            probs = log_probs.exp()
+            preds.append(probs.argmax().item())
+        
+        # check if all the predictions are the same
+        if all(pred == preds[0] for pred in preds):
+            cum_sum[preds[0]] += 1
+        # log_probs = model(data.to(device)) # model outputs log_softmax
+        # probs = log_probs.exp()
+        # entropy = -torch.multiply(probs, log_probs).sum(1)
+        # avg_entropy = torch.sum(entropy)/n_samples
+        # entropy_cum_sum += avg_entropy.item()
             # forgotten_prob_cum_sum += (probs[:, cls] / (n_samples*len(classes_not_remembered)/(len(classes_remembered) + len(classes_not_remembered)))).sum().item()
             # cum_sum[cls] += probs[:, cls].sum().item() / (batch_size)
             # check if the probs
@@ -525,19 +542,11 @@ def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, c
             #     # increase the count of the class for which the max prob is cls
             #     count = (max_prob == cls).sum().item()
             #     cum_sum[cls] += count
-        if counter % 100 == 0:
-            print(probs.shape)
-        for i in range(probs.shape[0]):
-            max_prob = probs[i].argmax()
-            if max_prob == int(label[i]):
-                if max_prob.item() == 10:
-                    print("found noise label")
-                cum_sum[max_prob.item()] += 1
             # remembered_prob_cum_sum += (probs[:, cls] / (n_samples*len(classes_remembered)/(len(classes_remembered) + len(classes_not_remembered)))).sum().item()
             # cum_sum[cls] += probs[:, cls].sum().item() / (batch_size)
     # print the class wise cum sum
     for cls in cum_sum:
-        cum_sum[cls] = (cum_sum[cls]/ ((n_samples//batch_size)*batch_size)) * (len(classes_not_remembered) + len(classes_remembered))
+        cum_sum[cls] = (cum_sum[cls]/ ((n_samples))) * (len(classes_not_remembered) + len(classes_remembered))
         if cls in classes_remembered:
             print(f"REM    : Class {cls} : {cum_sum[cls]}")
         else : 

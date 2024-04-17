@@ -3,7 +3,7 @@ import torchvision
 import torch.nn.functional as F
 import os
 from model import Classifier
-from dataset import MNISTWithNoise
+from dataset import MNIST_Custom_Noisy
 import argparse
 
 def parse_args():
@@ -75,6 +75,9 @@ if __name__ == "__main__":
 
     # train_dataset = MNISTWithNoise(mnist_train)
     # test_dataset = MNISTWithNoise(mnist_test)
+
+    # train_dataset = MNIST_Custom_Noisy(digits=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], data_path=args.data_path, train=True, transform=torchvision.transforms.ToTensor(), download=True)
+    # test_dataset = MNIST_Custom_Noisy(digits=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9], data_path=args.data_path, train=False, transform=torchvision.transforms.ToTensor(), download=True)
 
     # train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
     # test_loader = torch.utils.data.DataLoader(test_dataset, batch_size=batch_size_test, shuffle=True)

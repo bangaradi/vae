@@ -41,7 +41,7 @@ class OneHotCVAE(nn.Module):
     
 
 class Classifier(nn.Module):
-    def __init__(self):
+    def __init__(self, output_dim=10):
         super().__init__()
         self.conv1 = nn.Conv2d(1, 10, kernel_size=5)
         self.bn1 = nn.BatchNorm2d(10)
@@ -49,7 +49,7 @@ class Classifier(nn.Module):
         self.bn2 = nn.BatchNorm2d(20)
         self.conv2_drop = nn.Dropout2d()
         self.fc1 = nn.Linear(320, 50)
-        self.fc2 = nn.Linear(50, 11) # changed from 10 to 11 for additional noise label
+        self.fc2 = nn.Linear(50, output_dim) # changed from 10 to 11 for additional noise label
 
     def forward(self, x):
         x = F.relu(F.max_pool2d(self.bn1(self.conv1(x)), 2))

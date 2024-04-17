@@ -33,23 +33,24 @@ from tqdm import tqdm
 from utils import get_config_and_setup_dirs_final, cycle, find_indices_to_drop, prune_model, prune_model_using_dag, expand_model, evaluate_with_classifier
 
 NUM_TRAIN_EPOCHS = {
-    1: 200,
-    2: 400,
-    3: 500,
-    4: 500,
-    5: 600,
-    6: 650,
-    7: 700,
-    8: 1000,
-    9: 1000,
-    10: 1000,
+    1: 20000,
+    2: 40000,
+    3: 50000,
+    4: 50000,
+    5: 60000,
+    6: 65000,
+    7: 70000,
+    8: 100000,
+    9: 100000,
+    10: 100000,
 }
-WARMUP_PERIOD = 10
-BREATHING_PERIOD = 5
+WARMUP_PERIOD = 10000
+BREATHING_PERIOD = 5000
 WARMED_UP = 0
 HYPERPARAMETER_COMPRESS = 0.1
 HYPERPARAMETERS_EXPAND = 0.1
-CLASSIFIER_PATH = './classifier_ckpts/model.pt'
+# CLASSIFIER_PATH = './classifier_ckpts/model.pt'
+CLASSIFIER_PATH = ["/home/stud-1/aditya/vae/classifier_ckpts/model1.pt", "/home/stud-1/aditya/vae/classifier_ckpts/model2.pt", "/home/stud-1/aditya/vae/classifier_ckpts/model3.pt","/home/stud-1/aditya/vae/classifier_ckpts/model4.pt", "/home/stud-1/aditya/vae/classifier_ckpts/model5.pt"]
 METRIC_PATH = {
     'accuracy_values' : 'metrics/accuracy_values.csv',
     'acc_path' : 'metrics/acc.csv',

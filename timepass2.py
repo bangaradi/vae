@@ -41,14 +41,57 @@
 import torch
 from utils import evaluate_with_classifier
 from model import OneHotCVAE
+from model import Classifier
+from tqdm import tqdm
+from torch.utils.data import Dataset, DataLoader
+from torchvision import datasets, transforms
 
 # ckpt_path = "/home/stud-1/aditya/vae/results/mnist/2024_04_09_165401/ckpts"
 ckpt_path = "/home/stud-1/aditya/vae/run0/mnist/initial/ckpts"
-classifier_path = "/home/stud-1/aditya/vae/classifier_ckpts/model.pt"
+classifier_paths = ["/home/stud-1/aditya/vae/classifier_ckpts/model1.pt", "/home/stud-1/aditya/vae/classifier_ckpts/model2.pt", "/home/stud-1/aditya/vae/classifier_ckpts/model3.pt","/home/stud-1/aditya/vae/classifier_ckpts/model4.pt", "/home/stud-1/aditya/vae/classifier_ckpts/model5.pt"]
 
-model = torch.load(ckpt_path + "/ckpt_modified.pt", map_location='cuda')
+# model = torch.load(ckpt_path + "/ckpt_modified.pt", map_location='cuda')
 
-rem, forgot, ent = evaluate_with_classifier(ckpt_path, classifier_path, [1,2,3,4], [])
+# model = Classifier(output_dim=10)
+# ckpt = torch.load(classifier_paths[0], map_location='cpu')
+# model.load_state_dict(ckpt)
+# model.eval()
+models = []
+for path in classifier_paths:
+    model = Classifier(output_dim=10)
+    ckpt = torch.load(path, map_location='cpu')
+    model.load_state_dict(ckpt)
+    model.eval()
+    models.append(model)
 
-print(rem, forgot, ent)
+majority_count = 0
+total = 0
+
+# load the MNIST dataset
+test_dataset = datasets.MNIST("./dataset", train=False, download=True, transform=transforms.ToTensor())
+test_loader = DataLoader(test_dataset, batch_size=1, shuffle=True)
+
+for i in tqdm(range(10000)):
+    # noise_input = torch.randn(2, 1, 28, 28)
+    image, label = next(iter(test_loader))
+    total += 1
+    preds = []
+    for model in models:
+        with torch.no_grad():
+            output = model(image)
+            preds.append(output.argmax().item())
+
+    # check if all the predictions are the same
+    if all(pred == preds[0] for pred in preds):
+        majority_count += 1
+
+print(majority_count, total)
+
+    
+
+
+
+# rem, forgot, ent = evaluate_with_classifier(ckpt_path, classifier_path, [1,2,3,4], [])
+
+# print(rem, forgot, ent)
 
