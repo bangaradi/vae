@@ -31,6 +31,7 @@ from dataset import MNIST_Custom
 import numpy as np
 from tqdm import tqdm
 from utils import get_config_and_setup_dirs_final, cycle, find_indices_to_drop, prune_model, prune_model_using_dag, expand_model, evaluate_with_classifier
+from train_sa_vae import train_sa_vae
 
 NUM_TRAIN_EPOCHS = {
     1: 20000,
@@ -49,8 +50,8 @@ BREATHING_PERIOD = 5000
 WARMED_UP = 0
 HYPERPARAMETER_COMPRESS = 0.1
 HYPERPARAMETERS_EXPAND = 0.1
-# CLASSIFIER_PATH = './classifier_ckpts/model.pt'
-CLASSIFIER_PATH = ["/home/stud-1/aditya/vae/classifier_ckpts/model1.pt", "/home/stud-1/aditya/vae/classifier_ckpts/model2.pt", "/home/stud-1/aditya/vae/classifier_ckpts/model3.pt","/home/stud-1/aditya/vae/classifier_ckpts/model4.pt", "/home/stud-1/aditya/vae/classifier_ckpts/model5.pt"]
+CLASSIFIER_PATH = ['./classifier_ckpts/model1.pt', './classifier_ckpts/model2.pt', './classifier_ckpts/model3.pt', './classifier_ckpts/model4.pt', './classifier_ckpts/model5.pt'] 
+# CLASSIFIER_PATH = ["/home/stud-1/aditya/vae/classifier_ckpts/model1.pt", "/home/stud-1/aditya/vae/classifier_ckpts/model2.pt", "/home/stud-1/aditya/vae/classifier_ckpts/model3.pt","/home/stud-1/aditya/vae/classifier_ckpts/model4.pt", "/home/stud-1/aditya/vae/classifier_ckpts/model5.pt"]
 METRIC_PATH = {
     'accuracy_values' : 'metrics/accuracy_values.csv',
     'acc_path' : 'metrics/acc.csv',
@@ -556,25 +557,6 @@ def main():
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     args, config = parse_args_and_config()
-    # print(args)
-    # logging.info(f"Beginning basic training of conditional VAE")
-
-    
-    # # build model
-    # vae = OneHotCVAE(x_dim=config.x_dim, h_dim1= config.h_dim1, h_dim2=config.h_dim2, z_dim=config.z_dim)
-    # vae = vae.to(device)
-
-    # optimizer = optim.Adam(vae.parameters(), lr=args.lr)
-    
-    # train_initial()
-    # torch.save({
-    #         "model": vae.state_dict(),
-    #         "config": config,
-    #         "labels": args.labels_to_learn_initial
-    #     },
-    #     os.path.join(config.ckpt_dir, "ckpt_modified.pt"))
-    
-    # after initial training is done, we put the training according to the input_file
     with open(args.input_file, 'r') as file:
         # get the number of lines in the file
         lines = file.readlines()

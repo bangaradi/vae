@@ -9,6 +9,5 @@ python train_classifier.py --data_path ./dataset
 python final.py --config mnist.yaml --data_path ./dataset --input_file input_file2.txt
 
 python final.py --config mnist.yaml --data_path ./dataset --input_file input_file2.txt --n_passes 20
-python final.py --config mnist2.yaml --data_path ./dataset --input_file input_file2.txt --n_passes 20
 # continual learning is without EWC
 # forgetting is with EWC

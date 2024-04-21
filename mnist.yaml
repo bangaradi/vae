@@ -7,5 +7,5 @@ h_dim2: 256
 z_dim: 8
 
 # parameters for unique runs
-user: adi
+user: sid
 working_dir: run1
