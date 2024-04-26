@@ -361,10 +361,6 @@ def expand_model(model_state_dict, hyperparam_e = 0.1, hyperparam_perturbation=0
                     new_bias = (torch.randn(num_new_neurons)*hyperparam_perturbation).to(device)
                     expanded_bias = torch.cat((model_state_dict[base_layer_name + '.bias'], new_bias), dim=0)
                     model_state_dict[base_layer_name + '.bias'] = expanded_bias
-
-                # print("Expanded weight shape: ", expanded_weights.shape)
-                # if base_layer_name + '.bias' in model_state_dict:
-                    # print("Expanded bias shape: ", expanded_bias.shape)
         
         # expand the second dimension
         if expand_right:
@@ -391,9 +387,9 @@ def expand_model(model_state_dict, hyperparam_e = 0.1, hyperparam_perturbation=0
 
     return model_state_dict
 
-def generate_samples(ckpt_folder, sample_path, classes_remembered, classes_not_remembered, n_samples=100, batch_size=32):
+def generate_samples(ckpt_path, sample_path, classes_remembered, classes_not_remembered, n_samples=100, batch_size=32):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    ckpt = torch.load(os.path.join(ckpt_folder, "ckpt_modified.pt"), map_location=device)
+    ckpt = torch.load(os.path.join(ckpt_path), map_location=device)
     config = ckpt['config']
     # build model
     vae = OneHotCVAE(x_dim=config.x_dim, h_dim1= ckpt['h_dims1'], h_dim2=ckpt['h_dims2'], z_dim=config.z_dim)
@@ -479,14 +475,10 @@ def GetImageFolderLoader(path, batch_size):
     
     return loader
 
-def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, classes_not_remembered, metric_paths=None, config=None, clean=True, sample_path="./samples", batch_size=32):
+def evaluate_with_classifier(ckpt_path, classifier_path, classes_remembered, classes_not_remembered, metric_paths=None, config=None, clean=True, sample_path="./samples", batch_size=32):
     sample_path = os.path.join(f"./{config.user}", config.working_dir, "samples")
-    generate_samples(ckpt_folder, sample_path, classes_remembered, classes_not_remembered, n_samples=2000, batch_size=1)
+    generate_samples(ckpt_path, sample_path, classes_remembered, classes_not_remembered, n_samples=5000, batch_size=1)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # model = Classifier().to(device)
-    # model.eval()
-    # ckpt = torch.load(classifier_path, map_location=device)
-    # model.load_state_dict(ckpt)
     ensemble_models = []
     for path in classifier_path:
         model = Classifier(output_dim=10)
@@ -519,6 +511,7 @@ def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, c
     }
     counter = 0
     for data, label in tqdm.tqdm(iter(loader), total=n_samples):
+        # print("LABEL IS : ", type(label[0]))
         preds = []
         for model in ensemble_models:
             log_probs = model(data.to(device))
@@ -526,25 +519,8 @@ def evaluate_with_classifier(ckpt_folder, classifier_path, classes_remembered, c
             preds.append(probs.argmax().item())
         
         # check if all the predictions are the same
-        if all(pred == preds[0] for pred in preds):
+        if all(pred == preds[0] for pred in preds) and preds[0] == int(label[0]):
             cum_sum[preds[0]] += 1
-        # log_probs = model(data.to(device)) # model outputs log_softmax
-        # probs = log_probs.exp()
-        # entropy = -torch.multiply(probs, log_probs).sum(1)
-        # avg_entropy = torch.sum(entropy)/n_samples
-        # entropy_cum_sum += avg_entropy.item()
-            # forgotten_prob_cum_sum += (probs[:, cls] / (n_samples*len(classes_not_remembered)/(len(classes_remembered) + len(classes_not_remembered)))).sum().item()
-            # cum_sum[cls] += probs[:, cls].sum().item() / (batch_size)
-            # check if the probs
-            # if cls == int(label):
-            #     # find the max probability position
-            #     max_prob = probs.argmax(1)
-            #     # increase the count of the class for which the max prob is cls
-            #     count = (max_prob == cls).sum().item()
-            #     cum_sum[cls] += count
-            # remembered_prob_cum_sum += (probs[:, cls] / (n_samples*len(classes_remembered)/(len(classes_remembered) + len(classes_not_remembered)))).sum().item()
-            # cum_sum[cls] += probs[:, cls].sum().item() / (batch_size)
-    # print the class wise cum sum
     for cls in cum_sum:
         cum_sum[cls] = (cum_sum[cls]/ ((n_samples))) * (len(classes_not_remembered) + len(classes_remembered))
         if cls in classes_remembered:
