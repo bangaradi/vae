@@ -13,6 +13,19 @@ from dataset import MNIST_Custom
 from utils import get_config_and_setup_dirs_final, cycle
 from model import OneHotCVAE, loss_function
 
+NUM_TRAIN_EPOCHS = {
+    1: 20000,
+    2: 40000,
+    3: 50000,
+    4: 50000,
+    5: 60000,
+    6: 65000,
+    7: 70000,
+    8: 100000,
+    9: 100000,
+    10: 100000,
+}
+
 def parse_args_and_config():
     parser = argparse.ArgumentParser()
     
@@ -127,9 +140,6 @@ def train_specialized_model(args, config, labels_to_learn):
     train_dataset = MNIST_Custom(digits=labels_to_learn, data_path=args.data_path, train=True, transform=transforms.ToTensor(), download=True)
     test_dataset = MNIST_Custom(digits=labels_to_learn, data_path=args.data_path, train=True, transform=transforms.ToTensor(), download=True)
 
-    # train_dataset = filter_by_label(train_dataset, labels_to_learn)
-    # test_dataset = filter_by_label(test_dataset, labels_to_learn)
-
     # Data Loader
     train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=args.batch_size, shuffle=True)
     test_loader = torch.utils.data.DataLoader(dataset=test_dataset, batch_size=args.batch_size, shuffle=False)
@@ -142,7 +152,7 @@ def train_specialized_model(args, config, labels_to_learn):
 
     optimizer = optim.Adam(vae.parameters(), lr=args.lr)
     
-    train(vae, args, config, optimizer, args.n_iters, device, train_iter, test_loader)
+    train(vae, args, config, optimizer, NUM_TRAIN_EPOCHS[len(labels_to_learn)], device, train_iter, test_loader)
     torch.save({
             "model": vae.state_dict(),
             "config": config
