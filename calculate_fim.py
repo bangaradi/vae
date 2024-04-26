@@ -28,7 +28,7 @@ def parse_args_and_ckpt():
     return args, ckpt
 
 
-def save_fim():
+def save_fim(vae, args, config, device):
     fisher_dict = {}
     params_mle_dict = {}
     
