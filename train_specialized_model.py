@@ -9,6 +9,7 @@ import argparse
 import os
 import logging
 from tqdm import tqdm
+from dataset import MNIST_Custom
 from utils import get_config_and_setup_dirs_final, cycle
 from model import OneHotCVAE, loss_function
 
@@ -114,20 +115,20 @@ def sample(vae, args, config, step, device):
         grid = make_grid(out, nrow = args.n_vis_samples//10)
         save_image(grid, os.path.join(config.log_dir, "step_" + str(step) + ".png"))
 
-def filter_by_label(dataset, labels):
-    indices = [i for i, (img, label) in enumerate(dataset) if label in labels]
-    return Subset(dataset, indices)
+# def filter_by_label(dataset, labels):
+#     indices = [i for i, (img, label) in enumerate(dataset) if label in labels]
+#     return Subset(dataset, indices)
 
 def train_specialized_model(args, config, labels_to_learn):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     logging.info(f"Beginning basic training of specialized VAE")
 
     # MNIST Dataset
-    train_dataset = datasets.MNIST(root=args.data_path, train=True, transform=transforms.ToTensor(), download=True)
-    test_dataset = datasets.MNIST(root=args.data_path, train=False, transform=transforms.ToTensor(), download=False)
+    train_dataset = MNIST_Custom(digits=labels_to_learn, data_path=args.data_path, train=True, transform=transforms.ToTensor(), download=True)
+    test_dataset = MNIST_Custom(digits=labels_to_learn, data_path=args.data_path, train=True, transform=transforms.ToTensor(), download=True)
 
-    train_dataset = filter_by_label(train_dataset, labels_to_learn)
-    test_dataset = filter_by_label(test_dataset, labels_to_learn)
+    # train_dataset = filter_by_label(train_dataset, labels_to_learn)
+    # test_dataset = filter_by_label(test_dataset, labels_to_learn)
 
     # Data Loader
     train_loader = torch.utils.data.DataLoader(dataset=train_dataset, batch_size=args.batch_size, shuffle=True)
